@@ -22,6 +22,12 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 import logging
 
+# HACKATHON INTEGRATION: Real memory and evaluation classes
+from services.agent_memory import AgentMemory
+from services.simple_evaluator import SimpleEvaluator
+from services.memory_sync import sync_to_sqlite
+from services.turn_memory import AgentMemory as SQLiteMemory
+
 # TODO: Replace with actual LlamaIndex imports when available
 # from llama_index.core.agent import ReActAgent
 # from llama_index.core.memory import ChatMemoryBuffer
@@ -138,11 +144,13 @@ class ContentModerator:
         text_lower = text.lower()
 
         # Check for profanity patterns
-        for pattern in self.profanity_patterns:
-            if re.search(pattern, text_lower):
-                issues.append(
-                    f"Content may contain inappropriate material: {pattern}"
-                )
+        issues.extend(
+            [
+                f"Content may contain inappropriate material: {pattern}"
+                for pattern in self.profanity_patterns
+                if re.search(pattern, text_lower)
+            ]
+        )
 
         # Check length
         if len(text.strip()) < 5:
@@ -496,8 +504,13 @@ class AgentBrown:
         self.style_tagger = StyleTagger()
         self.feedback_analyzer = FeedbackAnalyzer()
 
-        # Initialize memory (stub implementation)
-        self.memory = LlamaIndexMemoryStub(token_limit=4000)
+        # HACKATHON INTEGRATION: Real memory and evaluator
+        self.memory = None  # Will be initialized when session starts
+        self.evaluator = SimpleEvaluator()
+        self.sqlite_memory = SQLiteMemory("memory.db")  # For persistence
+
+        # Keep stub for backward compatibility
+        self.memory_stub = LlamaIndexMemoryStub(token_limit=4000)
 
         # TODO: Initialize actual LlamaIndex ReActAgent when available
         # self.agent = ReActAgent.from_tools(
@@ -506,7 +519,7 @@ class AgentBrown:
         #     verbose=True
         # )
 
-        logger.info("Agent Brown initialized")
+        logger.info("Agent Brown initialized with real memory and evaluator")
 
     def validate_input(self, request: StoryboardRequest) -> ValidationResult:
         """
@@ -589,11 +602,18 @@ class AgentBrown:
             confidence_score=confidence,
         )
 
-        # Log validation to memory
-        self.memory.add_message(
-            f"Validated input: {result.status.value} (confidence: {confidence:.2f})",
-            {"validation_result": asdict(result)},
-        )
+        # Log validation to memory (only if memory is initialized)
+        if self.memory:
+            self.memory.add_message(
+                "assistant",
+                f"Validated input: {result.status.value} (confidence: {confidence:.2f})",
+            )
+        else:
+            # Fallback to stub for backward compatibility
+            self.memory_stub.add_message(
+                f"Validated input: {result.status.value} (confidence: {confidence:.2f})",
+                {"validation_result": asdict(result)},
+            )
 
         return result
 
@@ -611,6 +631,13 @@ class AgentBrown:
         self.session_id = f"session_{uuid.uuid4().hex[:8]}"
         self.conversation_id = f"conv_{uuid.uuid4().hex[:8]}"
         self.iteration_count = 1
+
+        # HACKATHON INTEGRATION: Initialize real memory for this session
+        self.memory = AgentMemory(self.session_id, "brown")
+        print(f"🧠 Brown initialized memory for session {self.session_id}")
+
+        # Log user request to memory
+        self.memory.add_message("user", request.prompt)
 
         logger.info(f"Processing request for session {self.session_id}")
 
@@ -666,11 +693,7 @@ class AgentBrown:
 
         # Log to memory
         self.memory.add_message(
-            f"Created generation request for Bayko",
-            {
-                "message": message.to_dict(),
-                "style_analysis": asdict(style_analysis),
-            },
+            "assistant", f"Created generation request for Bayko"
         )
 
         # Save session state
@@ -700,30 +723,31 @@ class AgentBrown:
             f"Reviewing Bayko output (iteration {self.iteration_count})"
         )
 
-        # Analyze the output
-        feedback = self.feedback_analyzer.analyze_output(
-            bayko_response, original_request
+        # HACKATHON INTEGRATION: Use real evaluator
+        print(f"🔍 Brown evaluating Bayko's output...")
+        evaluation = self.evaluator.evaluate(
+            bayko_response, original_request.prompt
         )
 
-        # Log feedback to memory
-        self.memory.add_message(
-            f"Analyzed Bayko output: score {feedback['overall_score']:.2f}",
-            {"feedback": feedback},
-        )
+        # Log evaluation to memory
+        if self.memory:
+            self.memory.add_message(
+                "assistant",
+                f"Evaluation: {evaluation['decision']} - {evaluation['reason']}",
+            )
 
-        # Check if approved or max iterations reached
-        if feedback["approved"] or self.iteration_count > self.max_iterations:
-            logger.info("Content approved or max iterations reached")
-            return self._create_approval_message(bayko_response, feedback)
+        # Handle evaluation decision
+        if evaluation["decision"] == "approve":
+            print(f"✅ Brown approved: {evaluation['reason']}")
+            return self._create_approval_message(bayko_response, evaluation)
 
-        # Create refinement request if needed
-        if feedback["refinement_needed"]:
-            logger.info("Refinement needed, creating refinement request")
-            return self._create_refinement_message(bayko_response, feedback)
+        elif evaluation["decision"] == "reject":
+            print(f"❌ Brown rejected: {evaluation['reason']}")
+            return self._create_rejection_message(bayko_response, evaluation)
 
-        # Content is acceptable but not excellent
-        logger.info("Content acceptable, approving")
-        return self._create_approval_message(bayko_response, feedback)
+        else:  # refine
+            print(f"🔄 Brown requesting refinement: {evaluation['reason']}")
+            return self._create_refinement_message(bayko_response, evaluation)
 
     def _create_error_message(
         self, issues: List[str], suggestions: List[str]
@@ -745,6 +769,30 @@ class AgentBrown:
                 "session_id": self.session_id or "error",
                 "iteration": 0,
                 "error_type": "validation",
+            },
+        )
+
+    def _create_rejection_message(
+        self, bayko_response: Dict[str, Any], evaluation: Dict[str, Any]
+    ) -> AgentMessage:
+        """Create rejection message for auto-rejected content"""
+        return AgentMessage(
+            message_id=f"msg_{uuid.uuid4().hex[:8]}",
+            timestamp=datetime.utcnow().isoformat() + "Z",
+            sender="agent_brown",
+            recipient="user_interface",
+            message_type=MessageType.VALIDATION_ERROR.value,
+            payload={
+                "error": "Content rejected",
+                "reason": evaluation["reason"],
+                "rejected_content": bayko_response,
+                "auto_rejection": True,
+            },
+            context={
+                "conversation_id": self.conversation_id,
+                "session_id": self.session_id,
+                "iteration": self.iteration_count,
+                "rejection_type": "quality",
             },
         )
 
@@ -826,7 +874,7 @@ class AgentBrown:
                 "session_id": self.session_id,
                 "conversation_id": self.conversation_id,
                 "iteration_count": self.iteration_count,
-                "memory": self.memory.get_messages(),
+                "memory": self.memory.get_history() if self.memory else [],
                 "last_message": message.to_dict(),
                 "original_request": asdict(request),
                 "created_at": datetime.utcnow().isoformat() + "Z",
@@ -863,11 +911,18 @@ class AgentBrown:
 
     def get_session_info(self) -> Dict[str, Any]:
         """Get current session information"""
+        memory_size = 0
+        if self.memory:
+            try:
+                memory_size = len(self.memory.get_history())
+            except:
+                memory_size = 0
+
         return {
             "session_id": self.session_id,
             "conversation_id": self.conversation_id,
             "iteration_count": self.iteration_count,
-            "memory_size": len(self.memory.get_messages()),
+            "memory_size": memory_size,
             "max_iterations": self.max_iterations,
         }
 

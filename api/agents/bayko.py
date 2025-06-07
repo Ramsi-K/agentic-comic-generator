@@ -27,6 +27,11 @@ from enum import Enum
 import logging
 import time
 
+# HACKATHON INTEGRATION: Real memory classes
+from services.agent_memory import AgentMemory
+from services.memory_sync import sync_to_sqlite
+from services.turn_memory import AgentMemory as SQLiteMemory
+
 # TODO: Replace with actual Modal imports when available
 # import modal
 
@@ -348,7 +353,11 @@ class AgentBayko:
             "error_count": 0,
         }
 
-        logger.info("Agent Bayko initialized")
+        # HACKATHON INTEGRATION: Memory will be initialized per session
+        self.memory = None
+        self.sqlite_memory = SQLiteMemory("memory.db")
+
+        logger.info("Agent Bayko initialized with memory support")
 
     async def process_generation_request(
         self, message: Dict[str, Any]
@@ -374,6 +383,15 @@ class AgentBayko:
 
         self.current_session = session_id
         self.session_manager = SessionManager(session_id)
+
+        # HACKATHON INTEGRATION: Initialize memory for this session
+        self.memory = AgentMemory(session_id, "bayko")
+        print(f"🧠 Bayko initialized memory for session {session_id}")
+
+        # Log received request to memory
+        self.memory.add_message(
+            "user", f"Received generation request: {payload.get('prompt', '')}"
+        )
 
         logger.info(f"Processing generation request for session {session_id}")
 
@@ -453,6 +471,13 @@ class AgentBayko:
             total_time=total_time,
             errors=errors,
         )
+
+        # HACKATHON INTEGRATION: Log completion to memory
+        if self.memory:
+            self.memory.add_message(
+                "assistant",
+                f"Generated {len(panels)} panels successfully in {total_time:.2f}s",
+            )
 
         logger.info(
             f"Generation completed for session {session_id} in {total_time:.2f}s"
@@ -604,7 +629,11 @@ class AgentBayko:
         generation_start = time.time()
 
         try:
+            # HACKATHON INTEGRATION: Show progress
+            print(f"🎨 Bayko generating panel {panel_id}...")
+
             # Generate image
+            print(f"  🖼️  Using SDXL tool for panel {panel_id}")
             logger.info(f"Generating image for panel {panel_id}")
             image_path, image_time = (
                 await self.image_generator.generate_panel_image(
@@ -619,6 +648,7 @@ class AgentBayko:
 
             # Generate audio if requested
             if "narration" in extras:
+                print(f"  🎵 Using TTS tool for panel {panel_id}")
                 logger.info(f"Generating audio for panel {panel_id}")
                 audio_path, audio_time = (
                     await self.tts_generator.generate_narration(
@@ -629,6 +659,7 @@ class AgentBayko:
 
                 # Generate subtitles if requested
                 if "subtitles" in extras:
+                    print(f"  📝 Generating subtitles for panel {panel_id}")
                     logger.info(f"Generating subtitles for panel {panel_id}")
                     subs_path, subs_time = (
                         await self.subtitle_generator.generate_subtitles(
@@ -638,6 +669,9 @@ class AgentBayko:
                     panel.subtitles_path = subs_path
 
             panel.generation_time = time.time() - generation_start
+            print(
+                f"  ✅ Panel {panel_id} completed in {panel.generation_time:.2f}s"
+            )
             logger.info(
                 f"Panel {panel_id} generated successfully in {panel.generation_time:.2f}s"
             )
@@ -963,130 +997,3 @@ if __name__ == "__main__":
     def get_generation_stats(self) -> Dict[str, Any]:
         """Get current generation statistics"""
         return self.generation_stats.copy()
-
-
-# Factory function for creating Agent Bayko instances
-def create_agent_bayko() -> AgentBayko:
-    """
-    Create and configure Agent Bayko instance
-
-    Returns:
-        Configured AgentBayko instance
-    """
-    return AgentBayko()
-
-
-# Example usage and testing
-async def main():
-    """Example usage of Agent Bayko"""
-    # Create agent
-    bayko = create_agent_bayko()
-
-    # Example message from Brown
-    brown_message = {
-        "message_id": "msg_12345",
-        "timestamp": "2025-01-15T10:30:00Z",
-        "sender": "agent_brown",
-        "recipient": "agent_bayko",
-        "message_type": "generation_request",
-        "payload": {
-            "prompt": "A moody K-pop idol finds a puppy on the street. It changes everything. Visual style: whimsical, nature, soft_lighting, watercolor, mood: peaceful, color palette: warm_earth_tones",
-            "original_prompt": "A moody K-pop idol finds a puppy on the street. It changes everything.",
-            "style_tags": [
-                "whimsical",
-                "nature",
-                "soft_lighting",
-                "watercolor",
-            ],
-            "panels": 4,
-            "language": "korean",
-            "extras": ["narration", "subtitles"],
-            "style_config": {
-                "primary_style": "studio_ghibli",
-                "mood": "peaceful",
-                "color_palette": "warm_earth_tones",
-                "confidence": 0.9,
-            },
-            "generation_params": {
-                "quality": "high",
-                "aspect_ratio": "16:9",
-                "panel_layout": "sequential",
-            },
-        },
-        "context": {
-            "conversation_id": "conv_001",
-            "session_id": "session_12345",
-            "iteration": 1,
-            "previous_feedback": None,
-            "validation_score": 0.85,
-        },
-    }
-
-    # Process generation request
-    print("Processing generation request...")
-    result = await bayko.process_generation_request(brown_message)
-
-    print(f"\nGeneration completed!")
-    print(f"Session: {result.session_id}")
-    print(f"Status: {result.status.value}")
-    print(f"Panels generated: {len(result.panels)}")
-    print(f"Total time: {result.total_time:.2f}s")
-    print(f"Errors: {len(result.errors)}")
-
-    # Show panel details
-    for panel in result.panels:
-        print(f"\nPanel {panel.panel_id}:")
-        print(f"  Description: {panel.description}")
-        print(f"  Image: {panel.image_path}")
-        print(f"  Audio: {panel.audio_path}")
-        print(f"  Subtitles: {panel.subtitles_path}")
-        print(f"  Generation time: {panel.generation_time:.2f}s")
-        if panel.errors:
-            print(f"  Errors: {panel.errors}")
-
-    # Example refinement request
-    refinement_message = {
-        "message_id": "msg_67890",
-        "timestamp": "2025-01-15T10:35:00Z",
-        "sender": "agent_brown",
-        "recipient": "agent_bayko",
-        "message_type": "refinement_request",
-        "payload": {
-            "original_content": result.to_dict(),
-            "feedback": {
-                "overall_score": 0.65,
-                "style_consistency": 0.6,
-                "improvement_suggestions": [
-                    "Improve visual style consistency",
-                    "Enhance narrative flow",
-                ],
-            },
-            "specific_improvements": [
-                "Improve visual style consistency",
-                "Enhance narrative flow",
-            ],
-            "focus_areas": ["style_consistency", "narrative_flow"],
-            "iteration": 2,
-        },
-        "context": {
-            "conversation_id": "conv_001",
-            "session_id": "session_12345",
-            "iteration": 2,
-            "refinement_reason": "Quality below threshold",
-        },
-    }
-
-    # Process refinement request
-    print("\nProcessing refinement request...")
-    refined_result = await bayko.process_refinement_request(refinement_message)
-
-    print(f"\nRefinement completed!")
-    print(f"Status: {refined_result.status.value}")
-    print(f"Refinement applied: {refined_result.refinement_applied}")
-    print(f"Refinement time: {refined_result.total_time:.2f}s")
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    asyncio.run(main())
