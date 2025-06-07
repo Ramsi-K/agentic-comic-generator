@@ -10,6 +10,8 @@ Agent Brown is the front-facing orchestrator that handles:
 
 This is the entry point for all user requests and manages the multi-turn
 feedback loop with Agent Bayko for iterative comic generation.
+
+Core AgentBrown class with validation, processing, and review capabilities
 """
 
 import uuid
@@ -17,6 +19,7 @@ import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
+
 
 # Core services
 from services.unified_memory import AgentMemory
@@ -340,25 +343,11 @@ class AgentBrown:
         print(f"🧠 Brown initialized memory for session {self.session_id}")
 
 
-# Factory function for easy instantiation
-def create_agent_brown(max_iterations: int = 3) -> AgentBrown:
-    """
-    Create and configure Agent Brown instance
-
-    Args:
-        max_iterations: Maximum number of refinement iterations
-
-    Returns:
-        Configured AgentBrown instance
-    """
-    return AgentBrown(max_iterations=max_iterations)
-
-
 # Example usage and testing
 def main():
     """Example usage of Agent Brown"""
-    # Create agent
-    brown = create_agent_brown()
+    # Create basic Brown instance
+    brown = AgentBrown(max_iterations=3)
 
     # Example request
     request = StoryboardRequest(

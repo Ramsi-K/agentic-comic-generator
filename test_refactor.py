@@ -3,7 +3,7 @@
 Quick test to verify the refactored AgentBrown works
 """
 
-from agents.brown import create_agent_brown, StoryboardRequest
+from agents.brown import AgentBrown, StoryboardRequest
 
 
 def test_refactored_brown():
@@ -11,7 +11,7 @@ def test_refactored_brown():
     print("🧪 Testing refactored AgentBrown...")
 
     # Create agent
-    brown = create_agent_brown()
+    brown = AgentBrown(max_iterations=3)
     print("✅ AgentBrown created successfully")
 
     # Create test request

@@ -10,6 +10,8 @@ from llama_index.core.agent import ReActAgent
 from llama_index.core.memory import ChatMemoryBuffer
 from agents.brown_tools import create_brown_tools
 
+openai_api_key = os.getenv("OPENAI_API_KEY")
+
 
 class BrownWorkflow:
     """
