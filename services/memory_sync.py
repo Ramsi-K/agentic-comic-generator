@@ -1,5 +1,5 @@
-from services.turn_memory import AgentMemory as SQLiteMemory
-from services.agent_memory import AgentMemory as LlamaMemory
+from services.sqlite_memory import AgentMemory as SQLiteMemory
+from services.llama_memory import AgentMemory as LlamaMemory
 
 
 def sync_to_sqlite(llama_memory: LlamaMemory, sqlite_memory: SQLiteMemory):

@@ -28,9 +28,9 @@ import logging
 import time
 
 # HACKATHON INTEGRATION: Real memory classes
-from services.agent_memory import AgentMemory
+from services.llama_memory import AgentMemory
 from services.memory_sync import sync_to_sqlite
-from services.turn_memory import AgentMemory as SQLiteMemory
+from services.sqlite_memory import AgentMemory as SQLiteMemory
 
 # TODO: Replace with actual Modal imports when available
 # import modal
