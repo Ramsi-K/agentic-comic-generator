@@ -27,10 +27,9 @@ from enum import Enum
 import logging
 import time
 
-# HACKATHON INTEGRATION: Real memory classes
-from services.llama_memory import AgentMemory
-from services.memory_sync import sync_to_sqlite
-from services.sqlite_memory import AgentMemory as SQLiteMemory
+# Core services - Updated to match Brown's memory system
+from services.unified_memory import AgentMemory
+from services.session_manager import SessionManager as ServiceSessionManager
 
 # TODO: Replace with actual Modal imports when available
 # import modal
@@ -271,58 +270,6 @@ class SubtitleGenerator:
 """
 
 
-class SessionManager:
-    """
-    Manages session state and file organization following tech_specs.md
-    """
-
-    def __init__(self, session_id: str):
-        self.session_id = session_id
-        self.session_dir = Path(f"storyboard/{session_id}")
-        self.content_dir = self.session_dir / "content"
-        self.agents_dir = self.session_dir / "agents"
-        self.iterations_dir = self.session_dir / "iterations"
-        self.output_dir = self.session_dir / "output"
-
-        # Create directory structure
-        for dir_path in [
-            self.content_dir,
-            self.agents_dir,
-            self.iterations_dir,
-            self.output_dir,
-        ]:
-            dir_path.mkdir(parents=True, exist_ok=True)
-
-    def save_bayko_state(self, state_data: Dict[str, Any]):
-        """Save Bayko's current state"""
-        state_file = self.agents_dir / "bayko_state.json"
-        with open(state_file, "w") as f:
-            json.dump(state_data, f, indent=2)
-
-    def update_metadata(self, metadata: Dict[str, Any]):
-        """Update content metadata"""
-        metadata_file = self.content_dir / "metadata.json"
-
-        # Load existing metadata if it exists
-        existing_metadata = {}
-        if metadata_file.exists():
-            with open(metadata_file, "r") as f:
-                existing_metadata = json.load(f)
-
-        # Merge with new metadata
-        existing_metadata.update(metadata)
-        existing_metadata["updated_at"] = datetime.utcnow().isoformat() + "Z"
-
-        with open(metadata_file, "w") as f:
-            json.dump(existing_metadata, f, indent=2)
-
-    def save_iteration_data(self, iteration: int, data: Dict[str, Any]):
-        """Save iteration-specific data"""
-        iteration_file = self.iterations_dir / f"v{iteration}_generation.json"
-        with open(iteration_file, "w") as f:
-            json.dump(data, f, indent=2)
-
-
 class AgentBayko:
     """
     Agent Bayko - The Creative Engine
@@ -353,11 +300,11 @@ class AgentBayko:
             "error_count": 0,
         }
 
-        # HACKATHON INTEGRATION: Memory will be initialized per session
+        # Memory will be initialized per session (matches Brown's pattern)
         self.memory = None
-        self.sqlite_memory = SQLiteMemory("memory.db")
+        self.service_session_manager = None
 
-        logger.info("Agent Bayko initialized with memory support")
+        logger.info("Agent Bayko initialized with unified memory support")
 
     async def process_generation_request(
         self, message: Dict[str, Any]
@@ -381,12 +328,8 @@ class AgentBayko:
         if not session_id:
             raise ValueError("No session_id provided in message context")
 
-        self.current_session = session_id
-        self.session_manager = SessionManager(session_id)
-
-        # HACKATHON INTEGRATION: Initialize memory for this session
-        self.memory = AgentMemory(session_id, "bayko")
-        print(f"🧠 Bayko initialized memory for session {session_id}")
+        # Initialize session (matches Brown's pattern)
+        self._initialize_session(session_id, context.get("conversation_id"))
 
         # Log received request to memory
         self.memory.add_message(
@@ -449,7 +392,7 @@ class AgentBayko:
         )
 
         # Update session metadata
-        self.session_manager.update_metadata(metadata)
+        self.update_metadata(metadata)
 
         # Save Bayko state
         self._save_current_state(message, panels, metadata)
@@ -504,6 +447,12 @@ class AgentBayko:
 
         logger.info(f"Processing refinement request for session {session_id}")
 
+        # Initialize session if not already done
+        if self.current_session != session_id:
+            self._initialize_session(
+                session_id, context.get("conversation_id")
+            )
+
         # Extract refinement data
         original_content = payload.get("original_content", {})
         feedback = payload.get("feedback", {})
@@ -511,8 +460,11 @@ class AgentBayko:
         focus_areas = payload.get("focus_areas", [])
         iteration = payload.get("iteration", 1)
 
-        # Initialize session manager
-        self.session_manager = SessionManager(session_id)
+        # Log refinement request to memory
+        self.memory.add_message(
+            "user",
+            f"Received refinement request for iteration {iteration}: {', '.join(improvements)}",
+        )
 
         # Apply refinements based on feedback
         refined_panels = await self._apply_refinements(
@@ -527,10 +479,10 @@ class AgentBayko:
         )
 
         # Update session metadata
-        self.session_manager.update_metadata(metadata)
+        self.update_metadata(metadata)
 
         # Save iteration data
-        self.session_manager.save_iteration_data(
+        self.save_iteration_data(
             iteration,
             {
                 "refinement_request": payload,
@@ -550,6 +502,13 @@ class AgentBayko:
             errors=[],
             refinement_applied=True,
         )
+
+        # Log refinement completion to memory
+        if self.memory:
+            self.memory.add_message(
+                "assistant",
+                f"Completed refinement with {len(improvements)} improvements in {total_time:.2f}s",
+            )
 
         logger.info(
             f"Refinement completed for session {session_id} in {total_time:.2f}s"
@@ -629,8 +588,13 @@ class AgentBayko:
         generation_start = time.time()
 
         try:
-            # HACKATHON INTEGRATION: Show progress
+            # Show progress and log to memory
             print(f"🎨 Bayko generating panel {panel_id}...")
+            if self.memory:
+                self.memory.add_message(
+                    "assistant",
+                    f"Starting generation for panel {panel_id}: {description}",
+                )
 
             # Generate image
             print(f"  🖼️  Using SDXL tool for panel {panel_id}")
@@ -672,6 +636,14 @@ class AgentBayko:
             print(
                 f"  ✅ Panel {panel_id} completed in {panel.generation_time:.2f}s"
             )
+
+            # Log successful panel completion to memory
+            if self.memory:
+                self.memory.add_message(
+                    "assistant",
+                    f"Panel {panel_id} generated successfully in {panel.generation_time:.2f}s",
+                )
+
             logger.info(
                 f"Panel {panel_id} generated successfully in {panel.generation_time:.2f}s"
             )
@@ -857,15 +829,118 @@ class AgentBayko:
             "generated_panels": [asdict(panel) for panel in panels],
             "generation_metadata": metadata,
             "generation_stats": self.generation_stats,
+            "memory_history": self.memory.get_history() if self.memory else [],
             "saved_at": datetime.utcnow().isoformat() + "Z",
         }
 
-        if self.session_manager:
-            self.session_manager.save_bayko_state(state_data)
+        # Save using Bayko's state saving method
+        self.save_bayko_state(state_data)
+
+        # Log state save to memory
+        if self.memory:
+            self.memory.add_message(
+                "assistant", f"Saved session state with {len(panels)} panels"
+            )
 
     def get_generation_stats(self) -> Dict[str, Any]:
         """Get current generation statistics"""
         return self.generation_stats.copy()
+
+    def _initialize_session(
+        self, session_id: str, conversation_id: Optional[str] = None
+    ):
+        """Initialize session with unified memory system (matches Brown's pattern)"""
+        self.current_session = session_id
+
+        # Initialize service session manager (matches Brown's pattern)
+        self.session_manager = ServiceSessionManager(
+            session_id, conversation_id or f"conv_{session_id}"
+        )
+
+        # Initialize unified memory system
+        self.memory = AgentMemory(session_id, "bayko")
+
+        # Create Bayko's directory structure
+        self._create_session_directories(session_id)
+
+        print(f"🧠 Bayko initialized unified memory for session {session_id}")
+        logger.info(f"Bayko session initialized: {session_id}")
+
+    def _create_session_directories(self, session_id: str):
+        """Create Bayko's session directory structure"""
+        session_dir = Path(f"storyboard/{session_id}")
+        content_dir = session_dir / "content"
+        agents_dir = session_dir / "agents"
+        iterations_dir = session_dir / "iterations"
+        output_dir = session_dir / "output"
+
+        # Create directory structure
+        for dir_path in [content_dir, agents_dir, iterations_dir, output_dir]:
+            dir_path.mkdir(parents=True, exist_ok=True)
+
+    def update_metadata(self, metadata: Dict[str, Any]):
+        """Update content metadata"""
+        if not self.current_session:
+            return
+
+        session_dir = Path(f"storyboard/{self.current_session}")
+        content_dir = session_dir / "content"
+        content_dir.mkdir(parents=True, exist_ok=True)
+        metadata_file = content_dir / "metadata.json"
+
+        # Load existing metadata if it exists
+        existing_metadata = {}
+        if metadata_file.exists():
+            with open(metadata_file, "r") as f:
+                existing_metadata = json.load(f)
+
+        # Merge with new metadata
+        existing_metadata.update(metadata)
+        existing_metadata["updated_at"] = datetime.utcnow().isoformat() + "Z"
+
+        with open(metadata_file, "w") as f:
+            json.dump(existing_metadata, f, indent=2)
+
+    def save_iteration_data(self, iteration: int, data: Dict[str, Any]):
+        """Save iteration-specific data"""
+        if not self.current_session:
+            return
+
+        session_dir = Path(f"storyboard/{self.current_session}")
+        iterations_dir = session_dir / "iterations"
+        iterations_dir.mkdir(parents=True, exist_ok=True)
+        iteration_file = iterations_dir / f"v{iteration}_generation.json"
+
+        with open(iteration_file, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def save_bayko_state(self, state_data: Dict[str, Any]):
+        """Save Bayko's current state"""
+        if not self.current_session:
+            return
+
+        session_dir = Path(f"storyboard/{self.current_session}")
+        agents_dir = session_dir / "agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        state_file = agents_dir / "bayko_state.json"
+
+        with open(state_file, "w") as f:
+            json.dump(state_data, f, indent=2)
+
+    def get_session_info(self) -> Dict[str, Any]:
+        """Get current session information (matches Brown's interface)"""
+        memory_size = 0
+        if self.memory:
+            try:
+                memory_size = self.memory.get_memory_size()
+            except:
+                memory_size = 0
+
+        return {
+            "session_id": self.current_session,
+            "memory_size": memory_size,
+            "generation_stats": self.generation_stats,
+        }
 
 
 # Factory function for creating Agent Bayko instances
@@ -993,7 +1068,3 @@ if __name__ == "__main__":
     import asyncio
 
     asyncio.run(main())
-
-    def get_generation_stats(self) -> Dict[str, Any]:
-        """Get current generation statistics"""
-        return self.generation_stats.copy()

@@ -29,9 +29,9 @@ class BrownWorkflow:
 
         # Initialize MultiModal LLM
         self.llm = OpenAIMultiModal(
-            model="gpt-4-vision-preview",
+            model="gpt-4.1-mini",
             api_key=openai_api_key or os.getenv("OPENAI_API_KEY"),
-            temperature=0.1,
+            temperature=0.9,
             max_tokens=2048,
         )
 
