@@ -30,6 +30,7 @@ import time
 # Core services - Updated to match Brown's memory system
 from services.unified_memory import AgentMemory
 from services.session_manager import SessionManager as ServiceSessionManager
+from services.message_factory import MessageFactory, AgentMessage, MessageType
 
 # TODO: Replace with actual Modal imports when available
 # import modal
@@ -302,13 +303,14 @@ class AgentBayko:
 
         # Memory will be initialized per session (matches Brown's pattern)
         self.memory = None
-        self.service_session_manager = None
+        self.session_manager = None
+        self.message_factory = None
 
         logger.info("Agent Bayko initialized with unified memory support")
 
     async def process_generation_request(
         self, message: Dict[str, Any]
-    ) -> GenerationResult:
+    ) -> AgentMessage:
         """
         Process generation request from Agent Brown
 
@@ -316,7 +318,7 @@ class AgentBayko:
             message: AgentMessage from Brown containing generation request
 
         Returns:
-            GenerationResult with generated content and metadata
+            AgentMessage with generated content and metadata
         """
         start_time = time.time()
 
@@ -406,7 +408,8 @@ class AgentBayko:
                 else GenerationStatus.COMPLETED
             )
 
-        result = GenerationResult(
+        # Create GenerationResult for internal use
+        generation_result = GenerationResult(
             session_id=session_id,
             panels=panels,
             metadata=metadata,
@@ -415,7 +418,23 @@ class AgentBayko:
             errors=errors,
         )
 
-        # HACKATHON INTEGRATION: Log completion to memory
+        # Create AgentMessage response using MessageFactory
+        response_message = self.message_factory.create_approval_message(
+            generation_result.to_dict(),
+            {
+                "overall_score": 1.0 if not errors else 0.7,
+                "generation_successful": True,
+                "panels_generated": len(panels),
+                "total_time": total_time,
+            },
+            1,  # iteration
+        )
+
+        # Save conversation log
+        if self.session_manager:
+            self.session_manager._save_conversation_log(response_message)
+
+        # Log completion to memory
         if self.memory:
             self.memory.add_message(
                 "assistant",
@@ -425,11 +444,11 @@ class AgentBayko:
         logger.info(
             f"Generation completed for session {session_id} in {total_time:.2f}s"
         )
-        return result
+        return response_message
 
     async def process_refinement_request(
         self, message: Dict[str, Any]
-    ) -> GenerationResult:
+    ) -> AgentMessage:
         """
         Process refinement request from Agent Brown
 
@@ -437,7 +456,7 @@ class AgentBayko:
             message: AgentMessage from Brown containing refinement request
 
         Returns:
-            GenerationResult with refined content
+            AgentMessage with refined content
         """
         start_time = time.time()
 
@@ -493,7 +512,8 @@ class AgentBayko:
             },
         )
 
-        result = GenerationResult(
+        # Create GenerationResult for internal use
+        generation_result = GenerationResult(
             session_id=session_id,
             panels=refined_panels,
             metadata=metadata,
@@ -502,6 +522,22 @@ class AgentBayko:
             errors=[],
             refinement_applied=True,
         )
+
+        # Create AgentMessage response using MessageFactory
+        response_message = self.message_factory.create_approval_message(
+            generation_result.to_dict(),
+            {
+                "overall_score": 1.0,
+                "refinement_successful": True,
+                "improvements_applied": improvements,
+                "total_time": total_time,
+            },
+            iteration,
+        )
+
+        # Save conversation log
+        if self.session_manager:
+            self.session_manager._save_conversation_log(response_message)
 
         # Log refinement completion to memory
         if self.memory:
@@ -513,7 +549,7 @@ class AgentBayko:
         logger.info(
             f"Refinement completed for session {session_id} in {total_time:.2f}s"
         )
-        return result
+        return response_message
 
     def _create_panel_descriptions(
         self, prompt: str, panel_count: int, style_config: Dict[str, Any]
@@ -851,13 +887,13 @@ class AgentBayko:
     ):
         """Initialize session with unified memory system (matches Brown's pattern)"""
         self.current_session = session_id
+        conversation_id = conversation_id or f"conv_{session_id}"
 
-        # Initialize service session manager (matches Brown's pattern)
+        # Initialize session-specific services (matches Brown's pattern)
         self.session_manager = ServiceSessionManager(
-            session_id, conversation_id or f"conv_{session_id}"
+            session_id, conversation_id
         )
-
-        # Initialize unified memory system
+        self.message_factory = MessageFactory(session_id, conversation_id)
         self.memory = AgentMemory(session_id, "bayko")
 
         # Create Bayko's directory structure
