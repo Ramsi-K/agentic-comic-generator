@@ -4,8 +4,8 @@ Test script for the integrated memory and evaluation system
 """
 
 import asyncio
-from api.agents.brown import AgentBrown, StoryboardRequest
-from api.agents.bayko import AgentBayko
+from agents.brown import AgentBrown, StoryboardRequest
+from agents.bayko import AgentBayko
 
 
 async def test_integration():

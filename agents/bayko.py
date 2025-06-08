@@ -26,11 +26,31 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 import logging
 import time
+import os
+
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not required if env vars are already set
+
+# OpenAI for LLM functionality
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
 
 # Core services - Updated to match Brown's memory system
 from services.unified_memory import AgentMemory
 from services.session_manager import SessionManager as ServiceSessionManager
 from services.message_factory import MessageFactory, AgentMessage, MessageType
+from agents.bayko_tools import (
+    ModalImageGenerator,
+    TTSGenerator,
+    SubtitleGenerator,
+)
 
 # TODO: Replace with actual Modal imports when available
 # import modal
@@ -103,174 +123,6 @@ class GenerationResult:
         }
 
 
-class ModalImageGenerator:
-    """
-    Stub implementation for Modal SDXL image generation
-    TODO: Replace with actual Modal integration
-    """
-
-    def __init__(self):
-        self.model_loaded = False
-        logger.info("ModalImageGenerator initialized (stub)")
-
-    async def generate_panel_image(
-        self,
-        prompt: str,
-        style_tags: List[str],
-        panel_id: int,
-        session_id: str,
-    ) -> Tuple[str, float]:
-        """
-        Generate comic panel image using SDXL via Modal
-
-        Args:
-            prompt: Enhanced prompt for the panel
-            style_tags: Visual style tags to apply
-            panel_id: Panel number for naming
-            session_id: Session identifier
-
-        Returns:
-            Tuple of (image_path, generation_time)
-        """
-        start_time = time.time()
-
-        # TODO: Replace with actual Modal remote call
-        # result = modal_app.generate_comic_panel.remote(prompt, style_tags)
-
-        # Simulate generation time
-        await asyncio.sleep(2.0)  # Simulate SDXL generation time
-
-        # Create output path
-        content_dir = Path(f"storyboard/{session_id}/content")
-        content_dir.mkdir(parents=True, exist_ok=True)
-        image_path = content_dir / f"panel_{panel_id}.png"
-
-        # Stub: Create placeholder file
-        with open(image_path, "w") as f:
-            f.write(f"# Placeholder image for panel {panel_id}\n")
-            f.write(f"# Prompt: {prompt}\n")
-            f.write(f"# Style: {', '.join(style_tags)}\n")
-
-        generation_time = time.time() - start_time
-        logger.info(
-            f"Generated image for panel {panel_id} in {generation_time:.2f}s"
-        )
-
-        return str(image_path), generation_time
-
-
-class TTSGenerator:
-    """
-    Stub implementation for Text-to-Speech generation
-    TODO: Replace with actual TTS service integration
-    """
-
-    def __init__(self):
-        self.voice_models = {
-            "english": "en-US-neural",
-            "korean": "ko-KR-neural",
-            "japanese": "ja-JP-neural",
-            "spanish": "es-ES-neural",
-            "french": "fr-FR-neural",
-        }
-        logger.info("TTSGenerator initialized (stub)")
-
-    async def generate_narration(
-        self, text: str, language: str, panel_id: int, session_id: str
-    ) -> Tuple[str, float]:
-        """
-        Generate audio narration for panel
-
-        Args:
-            text: Text to convert to speech
-            language: Target language
-            panel_id: Panel number for naming
-            session_id: Session identifier
-
-        Returns:
-            Tuple of (audio_path, generation_time)
-        """
-        start_time = time.time()
-
-        # TODO: Replace with actual TTS service call
-        # result = tts_service.generate_audio(text, self.voice_models.get(language))
-
-        # Simulate generation time
-        await asyncio.sleep(1.0)
-
-        # Create output path
-        content_dir = Path(f"storyboard/{session_id}/content")
-        content_dir.mkdir(parents=True, exist_ok=True)
-        audio_path = content_dir / f"panel_{panel_id}_audio.mp3"
-
-        # Stub: Create placeholder file
-        with open(audio_path, "w") as f:
-            f.write(f"# Placeholder audio for panel {panel_id}\n")
-            f.write(f"# Text: {text}\n")
-            f.write(f"# Language: {language}\n")
-
-        generation_time = time.time() - start_time
-        logger.info(
-            f"Generated audio for panel {panel_id} in {generation_time:.2f}s"
-        )
-
-        return str(audio_path), generation_time
-
-
-class SubtitleGenerator:
-    """
-    Subtitle generation in VTT format
-    """
-
-    def __init__(self):
-        logger.info("SubtitleGenerator initialized")
-
-    async def generate_subtitles(
-        self, text: str, audio_duration: float, panel_id: int, session_id: str
-    ) -> Tuple[str, float]:
-        """
-        Generate VTT subtitle file for panel
-
-        Args:
-            text: Text to create subtitles for
-            audio_duration: Duration of audio in seconds
-            panel_id: Panel number for naming
-            session_id: Session identifier
-
-        Returns:
-            Tuple of (subtitles_path, generation_time)
-        """
-        start_time = time.time()
-
-        # Create output path
-        content_dir = Path(f"storyboard/{session_id}/content")
-        content_dir.mkdir(parents=True, exist_ok=True)
-        subs_path = content_dir / f"panel_{panel_id}_subs.vtt"
-
-        # Generate VTT content
-        vtt_content = self._create_vtt_content(text, audio_duration)
-
-        with open(subs_path, "w", encoding="utf-8") as f:
-            f.write(vtt_content)
-
-        generation_time = time.time() - start_time
-        logger.info(
-            f"Generated subtitles for panel {panel_id} in {generation_time:.2f}s"
-        )
-
-        return str(subs_path), generation_time
-
-    def _create_vtt_content(self, text: str, duration: float) -> str:
-        """Create VTT format subtitle content"""
-        # Simple VTT with single subtitle spanning the duration
-        return f"""WEBVTT
-
-1
-00:00:00.000 --> 00:00:{duration:06.3f}
-{text}
-"""
-
-
 class AgentBayko:
     """
     Agent Bayko - The Creative Engine
@@ -285,11 +137,20 @@ class AgentBayko:
     - Update metadata and performance metrics
     """
 
-    def __init__(self):
+    def __init__(self, llm: Optional[OpenAI] = None):
         # Initialize content generators
         self.image_generator = ModalImageGenerator()
         self.tts_generator = TTSGenerator()
         self.subtitle_generator = SubtitleGenerator()
+
+        # LLM for prompt generation and refinement
+        self.llm = llm
+        if self.llm:
+            logger.info("Agent Bayko initialized with LLM support")
+        else:
+            logger.info(
+                "Agent Bayko initialized without LLM - using fallback methods"
+            )
 
         # Processing state
         self.current_session = None
@@ -595,6 +456,304 @@ class AgentBayko:
 
         return descriptions[:panel_count]
 
+    def generate_prompt_from_description(
+        self, description: str, style_tags: List[str], mood: str
+    ) -> str:
+        """
+        Generate a detailed prompt using LLM based on description, style tags, and mood
+        Following Agent Brown's pattern for session management and logging
+
+        Args:
+            description: Panel description
+            style_tags: Visual style tags
+            mood: Mood for the panel
+
+        Returns:
+            Generated prompt string
+        """
+        if not self.llm:
+            logger.warning(
+                "No LLM available for prompt generation, using fallback"
+            )
+            if self.memory:
+                self.memory.add_message(
+                    "assistant",
+                    "LLM not available - using fallback prompt generation",
+                )
+            return description
+
+        try:
+            # Get session context for better prompts (like Brown does)
+            session_context = ""
+            if self.memory:
+                history = self.memory.get_history()
+                if history:
+                    recent_context = [msg["content"] for msg in history[-5:]]
+                    session_context = " | ".join(recent_context)
+
+            # Construct detailed LLM prompt with structured output requirements
+            llm_prompt = f"""You are an expert comic panel designer working with Agent Brown in a multi-agent comic generation system. Your task is to create a vivid, detailed prompt suitable for SDXL text-to-image generation.
+
+CONTEXT FROM AGENT BROWN:
+- Session Context: {session_context}
+- Panel Description: "{description}"
+- Style Tags: {style_tags}
+- Mood: "{mood}"
+
+REQUIREMENTS:
+1. Create a detailed visual prompt that incorporates ALL style tags: {style_tags}
+2. Ensure the mood "{mood}" is clearly conveyed through visual elements
+3. Include specific details about lighting, composition, and atmosphere
+4. Keep the prompt under 150 words but rich in visual detail
+5. Ensure compatibility with SDXL image generation
+6. Account for all metadata provided by Agent Brown
+
+OUTPUT FORMAT:
+Return only the enhanced prompt text, no explanations or additional text.
+
+EXAMPLE OUTPUT:
+"A melancholic K-pop idol in designer streetwear walking alone through rain-soaked Seoul streets at twilight, soft golden streetlight creating dramatic shadows, whimsical watercolor style with soft lighting effects, peaceful mood conveyed through gentle rain droplets and warm earth tones, cinematic composition with shallow depth of field"
+
+Generate the enhanced prompt now:"""
+
+            # Call the LLM with detailed system prompt
+            response = self.llm.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert comic panel designer who creates vivid, detailed prompts for SDXL text-to-image models. You work closely with Agent Brown to ensure all metadata and style requirements are incorporated. Always output only the enhanced prompt text without explanations.",
+                    },
+                    {"role": "user", "content": llm_prompt},
+                ],
+                max_tokens=200,
+                temperature=0.7,
+            )
+
+            generated_prompt = response.choices[0].message.content.strip()
+            logger.info(
+                f"Successfully generated LLM prompt for panel: {generated_prompt[:50]}..."
+            )
+
+            # Log detailed information to memory and session (following Brown's pattern)
+            if self.memory:
+                self.memory.add_message(
+                    "assistant", f"LLM enhanced prompt: {generated_prompt}"
+                )
+                self.memory.add_message(
+                    "system", f"Style tags applied: {style_tags}, Mood: {mood}"
+                )
+
+            # Save LLM generation data to session (following Brown's session management)
+            if hasattr(self, "current_session") and self.current_session:
+                llm_data = {
+                    "original_description": description,
+                    "style_tags": style_tags,
+                    "mood": mood,
+                    "generated_prompt": generated_prompt,
+                    "llm_model": "gpt-4o-mini",
+                    "generation_timestamp": datetime.utcnow().isoformat()
+                    + "Z",
+                }
+                self._save_llm_generation_data(llm_data)
+
+            return generated_prompt
+
+        except Exception as e:
+            error_msg = f"LLM prompt generation failed: {str(e)}"
+            logger.error(error_msg)
+            if self.memory:
+                self.memory.add_message(
+                    "assistant",
+                    f"LLM generation failed, using fallback: {str(e)}",
+                )
+            return description
+
+    def revise_panel_description(
+        self, description: str, feedback: Dict, focus_areas: List[str]
+    ) -> str:
+        """
+        Revise panel description using LLM based on feedback
+        Following Agent Brown's pattern for detailed feedback processing
+
+        Args:
+            description: Original panel description
+            feedback: Feedback dictionary from Brown
+            focus_areas: Areas that need focus
+
+        Returns:
+            Revised description string
+        """
+        if not self.llm:
+            logger.warning(
+                "No LLM available for description revision, using fallback"
+            )
+            if self.memory:
+                self.memory.add_message(
+                    "assistant", "LLM not available - using fallback revision"
+                )
+            return self._apply_description_improvements(
+                description,
+                feedback.get("improvement_suggestions", []),
+                focus_areas,
+            )
+
+        try:
+            # Get comprehensive message history for context (like Brown does)
+            message_history = ""
+            brown_feedback_context = ""
+            if self.memory:
+                history = self.memory.get_history()
+                recent_messages = history[-10:]  # Last 10 messages for context
+                message_history = "\n".join(
+                    [
+                        f"{msg['role']}: {msg['content']}"
+                        for msg in recent_messages
+                    ]
+                )
+
+                # Extract Brown's feedback patterns
+                brown_messages = [
+                    msg
+                    for msg in recent_messages
+                    if "brown" in msg.get("content", "").lower()
+                ]
+                if brown_messages:
+                    brown_feedback_context = "\n".join(
+                        [msg["content"] for msg in brown_messages[-3:]]
+                    )
+
+            # Construct detailed LLM prompt for revision with structured requirements
+            llm_prompt = f"""You are an expert comic panel designer working with Agent Brown to refine comic content. Agent Brown has provided feedback that requires improvement. Your task is to generate an improved panel description that addresses all feedback while maintaining story coherence.
+
+ORIGINAL PANEL DESCRIPTION:
+"{description}"
+
+AGENT BROWN'S FEEDBACK:
+{feedback}
+
+FOCUS AREAS REQUIRING IMPROVEMENT:
+{focus_areas}
+
+RECENT CONVERSATION HISTORY:
+{message_history}
+
+BROWN'S SPECIFIC FEEDBACK CONTEXT:
+{brown_feedback_context}
+
+REQUIREMENTS FOR REVISION:
+1. Address each focus area: {focus_areas}
+2. Incorporate feedback suggestions: {feedback.get('improvement_suggestions', [])}
+3. Maintain the core story elements and character consistency
+4. Enhance visual details that support the requested improvements
+5. Ensure the revision aligns with the overall session context
+6. Keep the description concise but vivid (under 100 words)
+
+OUTPUT FORMAT:
+Return only the improved panel description, no explanations or additional text.
+
+EXAMPLE OUTPUT:
+"A melancholic K-pop idol in designer streetwear walking alone through rain-soaked Seoul streets at twilight, enhanced visual style consistency through unified color palette, improved narrative flow with subtle body language showing emotional transformation, soft golden streetlight creating dramatic shadows"
+
+Generate the improved panel description now:"""
+
+            # Call the LLM with detailed system prompt for revision
+            response = self.llm.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert comic panel designer who refines descriptions based on Agent Brown's feedback to improve visual storytelling. You understand the multi-agent workflow and ensure all improvements align with the session context. Always output only the improved description without explanations.",
+                    },
+                    {"role": "user", "content": llm_prompt},
+                ],
+                max_tokens=150,
+                temperature=0.6,
+            )
+
+            revised_description = response.choices[0].message.content.strip()
+            logger.info(
+                f"Successfully revised description using LLM: {revised_description[:50]}..."
+            )
+
+            # Log detailed revision information to memory and session (following Brown's pattern)
+            if self.memory:
+                self.memory.add_message(
+                    "assistant",
+                    f"LLM revised description: {revised_description}",
+                )
+                self.memory.add_message(
+                    "system", f"Addressed focus areas: {focus_areas}"
+                )
+                self.memory.add_message(
+                    "system",
+                    f"Applied improvements: {feedback.get('improvement_suggestions', [])}",
+                )
+
+            # Save revision data to session
+            if hasattr(self, "current_session") and self.current_session:
+                revision_data = {
+                    "original_description": description,
+                    "feedback": feedback,
+                    "focus_areas": focus_areas,
+                    "revised_description": revised_description,
+                    "llm_model": "gpt-4o-mini",
+                    "revision_timestamp": datetime.utcnow().isoformat() + "Z",
+                }
+                self._save_llm_revision_data(revision_data)
+
+            return revised_description
+
+        except Exception as e:
+            error_msg = f"LLM description revision failed: {str(e)}"
+            logger.error(error_msg)
+            if self.memory:
+                self.memory.add_message(
+                    "assistant",
+                    f"LLM revision failed, using fallback: {str(e)}",
+                )
+            return self._apply_description_improvements(
+                description,
+                feedback.get("improvement_suggestions", []),
+                focus_areas,
+            )
+
+    def _save_llm_generation_data(self, llm_data: Dict[str, Any]):
+        """Save LLM generation data to session (following Brown's session management pattern)"""
+        try:
+            session_dir = Path(f"storyboard/{self.current_session}")
+            llm_dir = session_dir / "llm_data"
+            llm_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save generation data with timestamp
+            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            generation_file = llm_dir / f"generation_{timestamp}.json"
+
+            with open(generation_file, "w") as f:
+                json.dump(llm_data, f, indent=2)
+
+            logger.info(f"Saved LLM generation data to {generation_file}")
+        except Exception as e:
+            logger.error(f"Failed to save LLM generation data: {e}")
+
+    def _save_llm_revision_data(self, revision_data: Dict[str, Any]):
+        """Save LLM revision data to session (following Brown's session management pattern)"""
+        try:
+            session_dir = Path(f"storyboard/{self.current_session}")
+            llm_dir = session_dir / "llm_data"
+            llm_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save revision data with timestamp
+            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            revision_file = llm_dir / f"revision_{timestamp}.json"
+
+            with open(revision_file, "w") as f:
+                json.dump(revision_data, f, indent=2)
+
+            logger.info(f"Saved LLM revision data to {revision_file}")
+        except Exception as e:
+            logger.error(f"Failed to save LLM revision data: {e}")
+
     async def _generate_panel_content(
         self,
         panel_id: int,
@@ -632,12 +791,57 @@ class AgentBayko:
                     f"Starting generation for panel {panel_id}: {description}",
                 )
 
+            # Generate enhanced prompt using LLM if available (following Brown's pattern)
+            mood = "neutral"
+
+            # Try to extract mood from enhanced_prompt or use default
+            if "mood:" in enhanced_prompt.lower():
+                mood_part = (
+                    enhanced_prompt.lower()
+                    .split("mood:")[1]
+                    .split(",")[0]
+                    .strip()
+                )
+                mood = mood_part if mood_part else "neutral"
+
+            # Generate LLM-enhanced prompt or use fallback
+            if self.llm:
+                logger.info(
+                    f"Using LLM to generate enhanced prompt for panel {panel_id}"
+                )
+                if self.memory:
+                    self.memory.add_message(
+                        "system",
+                        f"Generating LLM-enhanced prompt for panel {panel_id}",
+                    )
+
+                llm_enhanced_prompt = self.generate_prompt_from_description(
+                    description, style_tags, mood
+                )
+                final_prompt = f"{enhanced_prompt}. {llm_enhanced_prompt}"
+
+                if self.memory:
+                    self.memory.add_message(
+                        "assistant",
+                        f"Panel {panel_id} using LLM-enhanced prompt",
+                    )
+            else:
+                logger.info(
+                    f"Using fallback prompt generation for panel {panel_id}"
+                )
+                if self.memory:
+                    self.memory.add_message(
+                        "system",
+                        f"Panel {panel_id} using fallback prompt (no LLM)",
+                    )
+                final_prompt = f"{enhanced_prompt}. {description}"
+
             # Generate image
             print(f"  🖼️  Using SDXL tool for panel {panel_id}")
             logger.info(f"Generating image for panel {panel_id}")
             image_path, image_time = (
                 await self.image_generator.generate_panel_image(
-                    f"{enhanced_prompt}. {description}",
+                    final_prompt,
                     style_tags,
                     panel_id,
                     session_id,
@@ -732,10 +936,38 @@ class AgentBayko:
             if needs_refinement:
                 logger.info(f"Refining panel {panel_id}")
 
-                # Apply specific improvements to the description
-                refined_description = self._apply_description_improvements(
-                    description, improvements, focus_areas
-                )
+                # Apply specific improvements to the description using LLM or fallback (following Brown's pattern)
+                if self.llm:
+                    logger.info(
+                        f"Using LLM to revise panel {panel_id} description"
+                    )
+                    if self.memory:
+                        self.memory.add_message(
+                            "system",
+                            f"Applying LLM-based refinement to panel {panel_id}",
+                        )
+
+                    refined_description = self.revise_panel_description(
+                        description, feedback, focus_areas
+                    )
+
+                    if self.memory:
+                        self.memory.add_message(
+                            "assistant", f"Panel {panel_id} refined using LLM"
+                        )
+                else:
+                    logger.info(
+                        f"Using fallback method to revise panel {panel_id} description"
+                    )
+                    if self.memory:
+                        self.memory.add_message(
+                            "system",
+                            f"Panel {panel_id} using fallback refinement (no LLM)",
+                        )
+
+                    refined_description = self._apply_description_improvements(
+                        description, improvements, focus_areas
+                    )
 
                 # Regenerate content with improvements
                 # TODO: In production, this would selectively regenerate only what needs fixing
