@@ -1,4 +1,5 @@
 import json
+import base64
 
 # import uuid  # Currently unused
 import asyncio
@@ -25,58 +26,68 @@ logger = logging.getLogger(__name__)
 
 class ModalImageGenerator:
     """
-    Stub implementation for Modal SDXL image generation
-    TODO: Replace with actual Modal integration
+    MCP client implementation for SDXL Turbo image generation via Modal compute
     """
 
     def __init__(self):
         self.model_loaded = False
-        logger.info("ModalImageGenerator initialized (stub)")
+        logger.info("ModalImageGenerator initialized")
+        # Import the Modal app here to ensure it's only loaded when needed
+        try:
+            from tools.image_generator import generate_comic_panel, app
+
+            self.generate_panel = generate_comic_panel
+            self.app = app
+            self.model_loaded = True
+        except ImportError as e:
+            logger.error(f"Failed to import Modal image generator: {e}")
 
     async def generate_panel_image(
         self,
         prompt: str,
-        style_tags: List[str],
+        style_tags: List[str],  # Kept for backward compatibility but not used
         panel_id: int,
         session_id: str,
     ) -> Tuple[str, float]:
         """
-        Generate comic panel image using SDXL via Modal
-
-        Args:
-            prompt: Enhanced prompt for the panel
-            style_tags: Visual style tags to apply
-            panel_id: Panel number for naming
-            session_id: Session identifier
-
-        Returns:
-            Tuple of (image_path, generation_time)
+        Generate comic panel image using SDXL via Modal MCP
+        Returns tuple of (image_path, generation_time)
         """
+        if not self.model_loaded:
+            raise RuntimeError(
+                "Modal image generator not properly initialized"
+            )
+
         start_time = time.time()
+        try:
+            # Call the Modal function directly
+            with self.app.run():
+                img_bytes, duration = self.generate_panel.remote(
+                    prompt=prompt,
+                    panel_id=panel_id,
+                    session_id=session_id,
+                    steps=1,  # Using SDXL Turbo default
+                    seed=42,
+                )
 
-        # TODO: Replace with actual Modal remote call
-        # result = modal_app.generate_comic_panel.remote(prompt, style_tags)
+            # Create output path and save the image
+            content_dir = Path(f"storyboard/{session_id}/content")
+            content_dir.mkdir(parents=True, exist_ok=True)
+            image_path = content_dir / f"panel_{panel_id}.png"
 
-        # Simulate generation time
-        await asyncio.sleep(2.0)  # Simulate SDXL generation time
+            # Save the returned image bytes
+            with open(image_path, "wb") as f:
+                f.write(img_bytes)
 
-        # Create output path
-        content_dir = Path(f"storyboard/{session_id}/content")
-        content_dir.mkdir(parents=True, exist_ok=True)
-        image_path = content_dir / f"panel_{panel_id}.png"
+            generation_time = time.time() - start_time
+            logger.info(
+                f"Generated image for panel {panel_id} in {generation_time:.2f}s"
+            )
+            return str(image_path), generation_time
 
-        # Stub: Create placeholder file
-        with open(image_path, "w") as f:
-            f.write(f"# Placeholder image for panel {panel_id}\n")
-            f.write(f"# Prompt: {prompt}\n")
-            f.write(f"# Style: {', '.join(style_tags)}\n")
-
-        generation_time = time.time() - start_time
-        logger.info(
-            f"Generated image for panel {panel_id} in {generation_time:.2f}s"
-        )
-
-        return str(image_path), generation_time
+        except Exception as e:
+            logger.error(f"Failed to generate image: {e}")
+            raise
 
 
 class TTSGenerator:

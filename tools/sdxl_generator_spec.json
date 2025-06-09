@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "name": "sdxl_turbo_generator",
+  "description": "Generate comic panel images using SDXL Turbo model via Modal compute",
+  "version": "1.0.0",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "prompt": {
+        "type": "string",
+        "description": "The text prompt for image generation"
+      },
+      "panel_id": {
+        "type": "integer",
+        "description": "Unique identifier for the comic panel"
+      },
+      "session_id": {
+        "type": "string",
+        "description": "Session identifier for grouping related panels"
+      },
+      "steps": {
+        "type": "integer",
+        "description": "Number of inference steps (default: 1)",
+        "default": 1
+      },
+      "seed": {
+        "type": "integer",
+        "description": "Random seed for reproducibility (default: 42)",
+        "default": 42
+      }
+    },
+    "required": ["prompt", "panel_id", "session_id"]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "image_bytes": {
+        "type": "string",
+        "description": "Base64 encoded PNG image data",
+        "contentEncoding": "base64"
+      },
+      "duration": {
+        "type": "number",
+        "description": "Time taken to generate the image in seconds"
+      }
+    },
+    "required": ["image_bytes", "duration"]
+  }
+}
