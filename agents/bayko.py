@@ -42,6 +42,20 @@ try:
 except ImportError:
     OpenAI = None
 
+# LlamaIndex imports for ReActAgent
+try:
+    from llama_index.llms.openai import OpenAI as LlamaOpenAI
+    from llama_index.core.agent import ReActAgent
+    from llama_index.core.memory import ChatMemoryBuffer
+    from llama_index.core.tools import FunctionTool, BaseTool
+    from typing import cast
+except ImportError:
+    LlamaOpenAI = None
+    ReActAgent = None
+    ChatMemoryBuffer = None
+    FunctionTool = None
+    BaseTool = None
+
 # Core services - Updated to match Brown's memory system
 from services.unified_memory import AgentMemory
 from services.session_manager import SessionManager as ServiceSessionManager

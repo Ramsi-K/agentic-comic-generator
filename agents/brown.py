@@ -19,7 +19,31 @@ import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
+import os
 
+# LlamaIndex imports for multimodal ReActAgent
+try:
+    from llama_index.multi_modal_llms.openai import OpenAIMultiModal
+    from llama_index.core.agent import ReActAgent
+    from llama_index.core.memory import ChatMemoryBuffer
+    from llama_index.core.tools import FunctionTool, BaseTool
+    from llama_index.core.llms import (
+        ChatMessage,
+        ImageBlock,
+        TextBlock,
+        MessageRole,
+    )
+    from typing import cast
+except ImportError:
+    OpenAIMultiModal = None
+    ReActAgent = None
+    ChatMemoryBuffer = None
+    FunctionTool = None
+    BaseTool = None
+    ChatMessage = None
+    ImageBlock = None
+    TextBlock = None
+    MessageRole = None
 
 # Core services
 from services.unified_memory import AgentMemory
@@ -225,6 +249,7 @@ class AgentBrown:
         message = self.message_factory.create_generation_request(
             enhanced_prompt=style_analysis.enhanced_prompt,
             original_prompt=request.prompt,
+            dialogues=["Ugh… another rainy day. Why am I even out here?", "Wait… is that a puppy? Hey—where's your owner?", "...You’re shivering. Here, come closer.", "Guess we’re both strays today... Let’s stick together."],
             style_tags=style_analysis.style_tags,
             panels=request.panels,
             language=request.language,
@@ -353,6 +378,7 @@ def main():
     request = StoryboardRequest(
         prompt="A moody K-pop idol finds a puppy on the street. "
         "It changes everything.",
+        dialogues=["Ugh… another rainy day. Why am I even out here?", "Wait… is that a puppy? Hey—where's your owner?", "...You’re shivering. Here, come closer.", "Guess we’re both strays today... Let’s stick together."]
         style_preference="studio_ghibli",
         panels=4,
         language="korean",

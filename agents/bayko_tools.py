@@ -189,3 +189,70 @@ class SubtitleGenerator:
 00:00:00.000 --> 00:00:{duration:06.3f}
 {text}
 """
+
+
+class ModalCodeExecutor:
+    """
+    Stub implementation for Modal code execution sandbox
+    TODO: Replace with actual Modal sandbox integration
+    """
+
+    def __init__(self):
+        self.sandbox_ready = False
+        logger.info("ModalCodeExecutor initialized (stub)")
+
+    async def execute_code(
+        self,
+        code: str,
+        language: str,
+        panel_id: int,
+        session_id: str,
+        context: str = "",
+    ) -> Tuple[str, float]:
+        """
+        Execute code in Modal sandbox for interactive comic elements
+
+        Args:
+            code: Code to execute
+            language: Programming language (python, javascript, etc.)
+            panel_id: Panel number for naming
+            session_id: Session identifier
+            context: Additional context for code execution
+
+        Returns:
+            Tuple of (execution_result_path, execution_time)
+        """
+        start_time = time.time()
+
+        # TODO: Replace with actual Modal sandbox call
+        # result = modal_sandbox.execute.remote(code, language, context)
+
+        # Simulate execution time
+        await asyncio.sleep(1.5)  # Simulate code execution time
+
+        # Create output path
+        content_dir = Path(f"storyboard/{session_id}/content")
+        content_dir.mkdir(parents=True, exist_ok=True)
+        result_path = content_dir / f"panel_{panel_id}_code_result.json"
+
+        # Stub: Create placeholder execution result
+        execution_result = {
+            "panel_id": panel_id,
+            "code": code,
+            "language": language,
+            "context": context,
+            "status": "success",
+            "output": f"# Code execution result for panel {panel_id}\n# Language: {language}\n# Code executed successfully",
+            "execution_time": time.time() - start_time,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        with open(result_path, "w", encoding="utf-8") as f:
+            json.dump(execution_result, f, indent=2)
+
+        execution_time = time.time() - start_time
+        logger.info(
+            f"Executed {language} code for panel {panel_id} in {execution_time:.2f}s"
+        )
+
+        return str(result_path), execution_time

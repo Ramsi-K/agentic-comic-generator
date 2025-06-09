@@ -101,15 +101,18 @@ class BrownTools:
 
         panels_count = data.get("panels", 4)
         style_tags = data.get("style_tags", ["studio_ghibli", "soft_lighting"])
+        enhanced_prompt = data.get("enhanced_prompt", "")
+        original_prompt = data.get("original_prompt", "")
 
-        # Simulate Bayko's response
+        # Simulate Bayko's response with realistic image URLs for multimodal analysis
         bayko_response = {
             "session_id": self.brown.session_id,
             "panels": [
                 {
                     "id": i + 1,
-                    "description": f"Panel {i+1}: Generated content with {', '.join(style_tags)} style",
-                    "image_path": f"panel_{i+1}.png",
+                    "description": f"Panel {i+1}: {original_prompt} - {', '.join(style_tags)} style",
+                    "image_path": f"storyboard/{self.brown.session_id}/content/panel_{i+1}.png",
+                    "image_url": f"https://example.com/generated/panel_{i+1}.png",  # For multimodal analysis
                     "audio_path": (
                         f"panel_{i+1}.mp3"
                         if "narration" in str(data)
@@ -128,6 +131,8 @@ class BrownTools:
                 "generation_time": "45s",
                 "total_panels": panels_count,
                 "status": "completed",
+                "enhanced_prompt": enhanced_prompt,
+                "original_prompt": original_prompt,
             },
         }
 

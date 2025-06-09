@@ -50,6 +50,7 @@ class MessageFactory:
         self,
         enhanced_prompt: str,
         original_prompt: str,
+        dialogues: List[str],
         style_tags: List[str],
         panels: int,
         language: str,
