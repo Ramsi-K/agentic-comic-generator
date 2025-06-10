@@ -10,6 +10,11 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 import logging
 import time
+import os
+import random
+import modal
+import modal
+import random
 
 # Core services - Updated to match Brown's memory system
 from services.unified_memory import AgentMemory
@@ -59,10 +64,9 @@ class ModalImageGenerator:
             )
 
         start_time = time.time()
-        try:
-            # Call the Modal function directly
+        try:  # Call the Modal function directly
             with self.app.run():
-                img_bytes, duration = self.generate_panel.remote(
+                img_bytes, duration = await self.generate_panel.remote.aio(
                     prompt=prompt,
                     panel_id=panel_id,
                     session_id=session_id,
@@ -204,66 +208,126 @@ class SubtitleGenerator:
 
 class ModalCodeExecutor:
     """
-    Stub implementation for Modal code execution sandbox
-    TODO: Replace with actual Modal sandbox integration
+    Modal code execution sandbox using fries.py for Python script generation and execution
     """
 
     def __init__(self):
-        self.sandbox_ready = False
-        logger.info("ModalCodeExecutor initialized (stub)")
+        self.app = None
+        self.generate_and_run = None
+        logger.info("ModalCodeExecutor initializing")
+        try:
+            from tools.fries import app, generate_and_run_script
+
+            self.app = app
+            # Store the Modal function directly like in ModalImageGenerator
+            self.generate_and_run = generate_and_run_script
+            logger.info("Successfully loaded Modal fries app")
+        except ImportError as e:
+            logger.error(f"Failed to import Modal fries app: {e}")
 
     async def execute_code(
-        self,
-        code: str,
-        language: str,
-        panel_id: int,
-        session_id: str,
-        context: str = "",
+        self, prompt: str, session_id: str
     ) -> Tuple[str, float]:
         """
-        Execute code in Modal sandbox for interactive comic elements
+        Execute code in Modal sandbox for interactive comic elements using fries.py
 
         Args:
-            code: Code to execute
-            language: Programming language (python, javascript, etc.)
-            panel_id: Panel number for naming
-            session_id: Session identifier
-            context: Additional context for code execution
+            prompt: The prompt to generate and run code for
+            session_id: Session identifier for file organization
 
         Returns:
-            Tuple of (execution_result_path, execution_time)
+            Tuple of (script_file_path, execution_time)
         """
+        if not self.app or not self.generate_and_run:
+            raise RuntimeError("Modal fries app not properly initialized")
+
         start_time = time.time()
 
-        # TODO: Replace with actual Modal sandbox call
-        # result = modal_sandbox.execute.remote(code, language, context)
+        try:
+            # Generate animal art with fries
+            animal = random.choice(
+                [
+                    "cat",
+                    "dog",
+                    "fish",
+                    "bird",
+                    "giraffe",
+                    "turtle",
+                    "monkey",
+                    "rabbit",
+                    "puppy",
+                    "animal",
+                ]
+            )
 
-        # Simulate execution time
-        await asyncio.sleep(1.5)  # Simulate code execution time
+            print(
+                f"\n🤖 Generating an ascii {animal} for you!"
+            )  # Execute code via Modal with the EXACT same prompt structure as main()
+            with self.app.run():
+                result = await self.generate_and_run.remote.aio(
+                    f"""
+                    create a simple ASCII art of a {animal}.
+                    Create ASCII art using these characters: _ - = ~ ^ \\\\ / ( ) [ ] {{ }} < > | . o O @ *
+                    Draw the art line by line with print statements.
+                    Write a short, funny Python script.
+                    Use only basic Python features.
+                    Add a joke or pun about fries in the script.
+                    Make it light-hearted and fun.
+                    End with a message about fries.
+                    Make sure the script runs without errors.
+                    """,
+                    session_id,
+                )
 
-        # Create output path
-        content_dir = Path(f"storyboard/{session_id}/content")
-        content_dir.mkdir(parents=True, exist_ok=True)
-        result_path = content_dir / f"panel_{panel_id}_code_result.json"
+            print("=" * 30)
+            print("\n🎮 Code Output:")
+            print("=" * 30)
+            print("\n\n")
+            print(result["output"])
 
-        # Stub: Create placeholder execution result
-        execution_result = {
-            "panel_id": panel_id,
-            "code": code,
-            "language": language,
-            "context": context,
-            "status": "success",
-            "output": f"# Code execution result for panel {panel_id}\n# Language: {language}\n# Code executed successfully",
-            "execution_time": time.time() - start_time,
-            "timestamp": datetime.now().isoformat(),
-        }
+            print("🍟    🍟     🍟")
+            print("Golden crispy Python fries")
+            print("Coming right up!")
+            print()
+            print("Haha. Just kidding.")
 
-        with open(result_path, "w", encoding="utf-8") as f:
-            json.dump(execution_result, f, indent=2)
+            script_file = f"storyboard/{session_id}/output/fries_for_you.py"
+            os.makedirs(os.path.dirname(script_file), exist_ok=True)
 
-        execution_time = time.time() - start_time
-        logger.info(
-            f"Executed {language} code for panel {panel_id} in {execution_time:.2f}s"
-        )
+            if result["code"]:
+                # Save the generated code locally
+                with open(script_file, "w") as f:
+                    f.write(result["code"])
+                print("\nGo here to check out your actual custom code:")
+                print(f"👉 Code saved to: {script_file}")
+                print("\n\n\n")
 
-        return str(result_path), execution_time
+            if result["error"]:
+                print("\n❌ Error:")
+                print("=" * 40)
+                print(result["error"])
+                print("Looks like there was an error during execution.")
+                print("Here are some extra fries to cheer you up!")
+                print("🍟    🍟     🍟")
+                print("   🍟     🍟    ")
+                print("       🍟      ")
+                print("Now with extra machine-learned crispiness.")
+
+            execution_time = time.time() - start_time
+            return script_file, execution_time
+
+        except modal.exception.FunctionTimeoutError:
+            print(
+                "⏰ Script execution timed out after 300 seconds and 3 tries!"
+            )
+            print("Sorry but codestral is having a hard time drawing today.")
+            print("Here's a timeout fry for you! 🍟")
+            print("Here are some extra fries to cheer you up!")
+            print("🍟    🍟     🍟")
+            print("   🍟     🍟    ")
+            print("       🍟      ")
+            print("Now with extra machine-learned crispiness.")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to execute code: {e}")
+            raise

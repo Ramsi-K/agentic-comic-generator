@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "name": "fries_script_generator",
+  "description": "Generate and run short, funny Python scripts using Codestral via Modal",
+  "version": "1.0.0",
+  "input_schema": {
+    "type": "object",    "properties": {
+      "prompt": {
+        "type": "string",
+        "description": "A natural language description of the script to generate",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "required": ["prompt"]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "code": {
+        "type": "string",
+        "description": "The generated Python code"
+      },
+      "output": {
+        "type": "string",
+        "description": "The stdout output from running the generated code"
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if script failed or timed out"
+      },
+      "status": {
+        "type": "string",
+        "description": "Status of execution: success, timeout, runtime_error, generation_error"
+      }
+    },
+    "required": ["code", "output", "status"]
+  }
+}

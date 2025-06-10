@@ -32,7 +32,7 @@ app = modal.App("fries-coder", image=image)
     retries=3,
     timeout=300,
 )
-async def generate_and_run_script(prompt: str) -> dict:
+async def generate_and_run_script(prompt: str, session_id: str) -> dict:
     """
     Generate a Python script using Mistral Codestral and run it
 
@@ -116,8 +116,7 @@ async def generate_and_run_script(prompt: str) -> dict:
 
 # Example usage
 @app.local_entrypoint()
-def main():
-    session_id = "test_session_fries"
+def main(session_id = "test_session_fries"):  
     animal = random.choice(
         [
             "cat",
@@ -146,7 +145,7 @@ Make sure the script runs without errors.
 
     try:
         print(f"\n🤖 Generating an ascii {animal} for you!")
-        result = generate_and_run_script.remote(prompt)
+        result = generate_and_run_script.remote(prompt, session_id)
 
         # print("\n📝 Generated Code:")
         # print("=" * 40)
