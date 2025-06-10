@@ -1,5 +1,6 @@
 import modal
 import os
+import random
 
 # Load environment variables only when running locally (not in Modal's cloud)
 if modal.is_local():
@@ -25,7 +26,12 @@ image = modal.Image.debian_slim().pip_install(
 app = modal.App("fries-coder", image=image)
 
 
-@app.function(secrets=[modal.Secret.from_name("mistral-api")], image=image)
+@app.function(
+    secrets=[modal.Secret.from_name("mistral-api")],
+    image=image,
+    retries=3,
+    timeout=300,
+)
 async def generate_and_run_script(prompt: str) -> dict:
     """
     Generate a Python script using Mistral Codestral and run it
@@ -111,11 +117,35 @@ async def generate_and_run_script(prompt: str) -> dict:
 # Example usage
 @app.local_entrypoint()
 def main():
-    prompt = "create a simple ASCII art of a cat"
     session_id = "test_session_fries"
+    animal = random.choice(
+        [
+            "cat",
+            "dog",
+            "fish",
+            "bird",,
+            "giraffe",
+            "turtle",
+            "monkey",
+            "rabbit",
+            "puppy",
+            "animal"
+        ]
+    )
+    prompt = f"""
+create a simple ASCII art of a {animal}.
+Create ASCII art using these characters: _ - = ~ ^ \\\\ / ( ) [ ] {{ }} < > | . o O @ *
+Draw the art line by line with print statements.
+Write a short, funny Python script.
+Use only basic Python features.
+Add a joke or pun about fries in the script.
+Make it light-hearted and fun.
+End with a message about fries.
+Make sure the script runs without errors.
+"""
 
     try:
-        # print(f"\n🤖 Generating script for: {prompt}")
+        print(f"\n🤖 Generating an ascii {animal} for you!")
         result = generate_and_run_script.remote(prompt)
 
         # print("\n📝 Generated Code:")
@@ -124,14 +154,13 @@ def main():
         print("=" * 30)
         print("\n🎮 Code Output:")
         print("=" * 30)
+        print("\n\n")
         print(result["output"])
 
-        print("\n" + "=" * 80)
+        # print("\n" + "=" * 80)
 
         print("🍟    🍟     🍟")
         print("Golden crispy Python fries")
-
-        print()
         print("Coming right up!")
         print()
         print("Haha. Just kidding.")
@@ -144,6 +173,7 @@ def main():
                 f.write(result["code"])
             print("\nGo here to check out your actual custom code:")
             print(f"👉 Code saved to: {script_file}")
+            print("\n\n\n")
 
         if result["error"]:
             print("\n❌ Error:")
@@ -159,7 +189,8 @@ def main():
             print("Now with extra machine-learned crispiness.")
 
     except modal.exception.FunctionTimeoutError:
-        print("⏰ Script execution timed out after 100 seconds.")
+        print("⏰ Script execution timed out after 300 seconds and 3 tries!")
+        print("Sorry but codestral is having a hard time drawing today.")
         print("Here's a timeout fry for you! 🍟")
         print("Here are some extra fries to cheer you up!")
         print("🍟    🍟     🍟")
