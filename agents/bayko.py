@@ -619,7 +619,7 @@ class AgentBayko:
                     prompt=optimized_prompt,
                     style_tags=style_tags,
                     panel_id=panel_id,
-                    session_id=session_id,
+                    session_id=session_id if session_id is not None else "",
                 )
             )
 
@@ -953,7 +953,14 @@ async def main():
         ).get("errors"):
 
             print("\n⚠️ Errors:")
-            for error in result_data["metadata"]["generation"]["errors"]:
+            errors = (
+                result_data.get("metadata", {})
+                .get("generation", {})
+                .get("errors")
+            )
+            if not isinstance(errors, list):
+                errors = []
+            for error in errors:
                 print(f"- {error}")
 
     print("\n✅ Test operations completed successfully!")
