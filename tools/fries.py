@@ -116,19 +116,19 @@ async def generate_and_run_script(prompt: str, session_id: str) -> dict:
 
 # Example usage
 @app.local_entrypoint()
-def main(session_id = "test_session_fries"):  
+def main(session_id="test_session_fries"):
     animal = random.choice(
         [
             "cat",
             "dog",
             "fish",
-            "bird",,
+            "bird",
             "giraffe",
             "turtle",
             "monkey",
             "rabbit",
             "puppy",
-            "animal"
+            "animal",
         ]
     )
     prompt = f"""
