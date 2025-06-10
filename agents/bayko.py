@@ -144,28 +144,34 @@ class AgentBayko:
         Process generation request from Agent Brown
 
         Args:
-            message: AgentMessage from Brown containing generation request
+            message: Request from Brown (can be direct dict or wrapped message)
 
         Returns:
             AgentMessage with generated content and metadata
         """
         start_time = time.time()
 
-        # Extract request data
-        payload = message.get("payload", {})
-        context = message.get("context", {})
-        session_id = context.get("session_id")
+        # Handle both direct dict from Brown and wrapped message formats
+        if "payload" in message:
+            # Wrapped message format
+            payload = message.get("payload", {})
+            context = message.get("context", {})
+            session_id = context.get("session_id")
+        else:
+            # Direct dict from Brown workflow
+            payload = message
+            session_id = message.get("session_id", "hackathon_session")
 
         if not session_id:
-            raise ValueError("No session_id provided in message context")
+            session_id = "hackathon_session"
 
         # Initialize session
-        self._initialize_session(session_id, context.get("conversation_id"))
+        self._initialize_session(session_id, None)
         logger.info(f"Processing generation request for session {session_id}")
 
-        # Extract generation parameters
-        prompt = payload.get("prompt", "")
-        original_prompt = payload.get("original_prompt", "")
+        # Extract generation parameters - handle both Brown formats
+        prompt = payload.get("enhanced_prompt") or payload.get("prompt", "")
+        original_prompt = payload.get("original_prompt", prompt)
         style_tags = payload.get("style_tags", [])
         panel_count = payload.get("panels", 4)
 
@@ -509,7 +515,10 @@ class AgentBayko:
             ]
 
     def generate_prompt_from_description(
-        self, description: str, style_tags: List[str]
+        self,
+        description: str,
+        style_tags: List[str],
+        mood: Optional[str] = None,
     ) -> str:
         """
         Use mini LLM to convert panel descriptions into SDXL-optimized prompts
@@ -882,6 +891,8 @@ async def main():
     bayko_workflow = create_agent_bayko(
         os.getenv("OPENAI_API_KEY")
     )  # Initialize a test session
+    from services.session_id_generator import SessionIdGenerator
+
     session_id = SessionIdGenerator.create_session_id("test")
     conversation_id = f"conv_{session_id}"
     bayko_workflow.initialize_session(session_id, conversation_id)

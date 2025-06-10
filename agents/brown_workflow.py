@@ -105,7 +105,7 @@ class BrownFunctionCallingAgent(Workflow):
 
         # Initialize multimodal LLM for Brown (GPT-4V for image analysis)
         self.llm = llm or OpenAIMultiModal(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             api_key=openai_api_key or os.getenv("OPENAI_API_KEY"),
             temperature=0.7,
             max_tokens=2048,
@@ -338,59 +338,83 @@ Provide specific feedback for any issues."""
         return InputEvent(input=memory.get())
 
     @step
-    async def enhance_and_send_to_bayko(self, ctx: Context, ev: StartEvent) -> StopEvent:
+    async def enhance_and_send_to_bayko(
+        self, ctx: Context, ev: StartEvent
+    ) -> StopEvent:
         """
-        Single step to enhance the user prompt and immediately send it to Bayko.
+        SINGLE STEP: Enhance prompt with ONE LLM call and send to Bayko.
+        NO TOOL CALLING LOOP - DIRECT PROCESSING ONLY.
         """
-        # Retrieve the original user prompt
         original_prompt = ev.input
+        print(f"Single-step processing: {original_prompt[:50]}...")
 
-        # Add system message for enhancement
-        system_msg = ChatMessage(role="system", content=BROWN_WORKFLOW_SYSTEM_PROMPT)
-        user_msg = ChatMessage(role="user", content=original_prompt)
+        # Create simple enhancement prompt (NO TOOL CALLING)
+        enhancement_prompt = f"""Enhance this comic story prompt for visual storytelling:
 
-        # Prepare chat history
-        chat_history = [system_msg, user_msg]
+Original: {original_prompt}
 
-        # Throttle LLM call
-        await throttle_llm()
-
-        # Enhance the prompt using a single LLM call
-        response = await self.llm.chat(chat_history)
-        enhanced_prompt = response.message.content
-
-        # Log the enhanced prompt for debugging
-        print(f"[DEBUG] Enhanced Prompt: {enhanced_prompt}")
-
-        # Call Bayko directly with the enhanced prompt
-        bayko_request = {
-            "enhanced_prompt": enhanced_prompt,
-            "style_tags": "[]",  # Default style tags
-            "panels": 4,          # Default number of panels
-            "language": "english",  # Default language
-            "extras": "[]",     # Default extras
-        }
+Provide ONLY an enhanced story description with visual details, mood, and style suggestions.
+Keep it concise and focused on the core narrative.
+DO NOT use any tools or functions - just return the enhanced prompt text."""
 
         try:
-            bayko_result = self.bayko_workflow.process_generation_request(bayko_request)
+            # SINGLE LLM CALL - No tools, no streaming, no complexity
+            print("🚀 Making SINGLE OpenAI call...")
 
-            # Log Bayko's response for debugging
-            print(f"[DEBUG] Bayko Response: {bayko_result}")
+            # Use simple chat completion without tools
+            simple_llm = OpenAIMultiModal(
+                model="gpt-4o",
+                api_key=self.llm.api_key,
+                temperature=0.7,
+                max_tokens=500,  # Shorter response
+                # NO tool_choice - allows free response
+            )
 
-            # Return a successful stop event
-            return StopEvent(output={
-                "status": "success",
-                "bayko_response": bayko_result,
-            })
+            response = await simple_llm.achat(
+                [ChatMessage(role="user", content=enhancement_prompt)]
+            )
+
+            enhanced_prompt = response.message.content or enhancement_prompt
+            print(f"🚀 Enhanced: {enhanced_prompt[:100]}...")
+
+            # Send directly to Bayko
+            bayko_request = {
+                "prompt": enhanced_prompt,
+                "original_prompt": original_prompt,
+                "style_tags": ["comic", "storytelling"],
+                "panels": 4,
+                "language": "english",
+                "extras": [],
+                "session_id": "hackathon_session",
+            }
+
+            print("🚀 Calling Bayko and waiting for image generation...")
+            # PROPERLY AWAIT Bayko's async image generation
+            bayko_result = (
+                await self.bayko_workflow.process_generation_request(
+                    bayko_request
+                )
+            )
+
+            print("🚀 SUCCESS! Comic generated and images ready!")
+            return StopEvent(
+                result={
+                    "status": "success",
+                    "enhanced_prompt": enhanced_prompt,
+                    "bayko_response": bayko_result,
+                    "llm_calls_made": 1,  # ONLY ONE!
+                }
+            )
+
         except Exception as e:
-            # Log the error for debugging
-            print(f"[ERROR] Bayko Coordination Failed: {e}")
-
-            # Return a failure stop event
-            return StopEvent(output={
-                "status": "error",
-                "error": str(e),
-            })
+            print(f"🚨Error: {e}")
+            return StopEvent(
+                result={
+                    "status": "error",
+                    "error": str(e),
+                    "llm_calls_made": 1,
+                }
+            )
 
     @step
     async def handle_llm_input(

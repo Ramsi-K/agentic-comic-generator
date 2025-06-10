@@ -64,7 +64,7 @@ class BaykoWorkflow:
         if openai_api_key is not None:
             try:
                 self.llm = LlamaOpenAI(
-                    model="gpt-4",
+                    model="gpt-4.1-mini",
                     api_key=openai_api_key,  # Don't use env var
                     temperature=0.7,
                     max_tokens=2048,
