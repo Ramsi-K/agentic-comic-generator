@@ -19,6 +19,7 @@ from datetime import datetime
 
 # Core services
 from services.unified_memory import AgentMemory
+from services.session_id_generator import SessionIdGenerator
 from services.session_manager import SessionManager
 from services.message_factory import MessageFactory, AgentMessage
 from agents.bayko import AgentBayko
@@ -227,6 +228,17 @@ Please generate enhanced prompts and create the comic content."""
 
         return json.dumps(result, indent=2)
 
+    def reset(self):
+        """Reset workflow state for a new session."""
+        if self.memory:
+            self.memory.clear()
+        if self.agent and hasattr(self.agent, "memory"):
+            self.agent.memory = ChatMemoryBuffer.from_defaults(
+                token_limit=4000
+            )
+        self.current_session = None
+        self.session_manager = None
+
 
 def create_agent_bayko(openai_api_key: Optional[str] = None) -> BaykoWorkflow:
     """
@@ -280,11 +292,9 @@ def main():
         "panels": 4,
         "language": "korean",
         "extras": ["narration", "subtitles"],
-        "session_id": "test_session_001",
-    }
-
-    # Initialize session
-    session_id = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        "session_id": SessionIdGenerator.create_session_id("test"),
+    }  # Initialize session
+    session_id = SessionIdGenerator.create_session_id("test")
     conversation_id = f"conv_{session_id}"
     workflow.initialize_session(session_id, conversation_id)
 
@@ -316,153 +326,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-#     """Process a finalized prompt from Agent Brown, generate per-panel images
-
-#     Args:
-#         message: AgentMessage containing finalized prompt and generation parameters
-
-#     Returns:
-#         List of dictionaries containing generated panel content and metadata
-#     """
-#     session_id = message.context["session_id"]
-#     self.initialize_session(
-#         session_id=session_id,
-#         conversation_id=message.context.get("conversation_id"),
-#     )
-
-#     # Log received message
-#     self.memory.add_message(
-#         "user",
-#         f"Received finalized prompt from Brown: {message.payload.get('prompt', '')}",
-#     )
-
-#     # Extract generation parameters
-#     dialogues = message.payload.get("dialogues", [])
-#     style_tags = message.payload.get("style_tags", [])
-#     mood = message.payload.get("style_config", {}).get("mood", "neutral")
-
-#     # Save initial request state
-#     iteration_data = {
-#         "original_message": message.to_dict(),
-#         "style_tags": style_tags,
-#         "mood": mood,
-#         "num_panels": len(dialogues),
-#         "timestamp": datetime.now().isoformat(),
-#     }
-#     self._save_iteration_data(session_id, 1, iteration_data)
-
-#     final_results = []
-#     for idx, description in enumerate(dialogues):
-#         panel_id = idx + 1
-
-#         # Step 1: Enhance prompt
-#         self.memory.add_message(
-#             "assistant", f"Enhancing prompt for panel {panel_id}..."
-#         )
-#         enhanced_prompt = (
-#             self.bayko_agent.generate_prompt_from_description(
-#                 description=description, style_tags=style_tags
-#             )
-#         )
-
-#         # Log the prompt enhancement
-#         self.memory.add_message(
-#             "system",
-#             f"Panel {panel_id} prompt enhanced:\nOriginal: {description}\nEnhanced: {enhanced_prompt}",
-#         )
-
-#         # Step 2: Generate panel content
-#         panel_input = {
-#             "panel_id": panel_id,
-#             "description": description,
-#             "enhanced_prompt": enhanced_prompt,
-#             "style_tags": style_tags,
-#             "session_id": session_id,
-#         }
-
-#         self.memory.add_message(
-#             "assistant", f"Generating image for panel {panel_id}..."
-#         )
-#         generation_start = datetime.now()
-
-#         try:
-#             result = await self.bayko_agent._generate_panel_content(
-#                 panel_id=panel_id,
-#                 description=description,
-#                 enhanced_prompt=enhanced_prompt,
-#                 style_tags=style_tags,
-#                 session_id=session_id,
-#             )
-
-#             result_dict = result.to_dict()
-#             final_results.append(result_dict)
-
-#             # Log successful generation
-#             self.memory.add_message(
-#                 "system",
-#                 f"Panel {panel_id} generated successfully at {result_dict.get('image_path')}",
-#             )
-
-#         except Exception as e:
-#             error_msg = f"Failed to generate panel {panel_id}: {str(e)}"
-#             self.memory.add_message("system", f"Error: {error_msg}")
-#             logger.error(error_msg)
-
-#             # Add error to results
-#             error_result = {
-#                 "panel_id": panel_id,
-#                 "error": error_msg,
-#                 "status": "failed",
-#                 "timestamp": datetime.now().isoformat(),
-#             }
-#             final_results.append(error_result)
-
-#     # Save final generation results
-#     self._save_generation_results(session_id, final_results)
-
-#     self.memory.add_message(
-#         "assistant",
-#         f"All panels generated for finalized prompt. Total panels: {len(final_results)}",
-#     )
-
-#     return final_results
-
-# def _save_session_state(
-#     self, session_id: str, state: Dict[str, Any]
-# ) -> None:
-#     """Save session state to the agents directory"""
-#     state_file = self.base_dir / session_id / "agents" / "bayko_state.json"
-#     with open(state_file, "w") as f:
-#         json.dump(state, f, indent=2)
-
-# def _save_iteration_data(
-#     self, session_id: str, iteration: int, data: Dict[str, Any]
-# ) -> None:
-#     """Save iteration-specific data"""
-#     iteration_file = (
-#         self.base_dir
-#         / session_id
-#         / "iterations"
-#         / f"v{iteration}_generation.json"
-#     )
-#     with open(iteration_file, "w") as f:
-#         json.dump(data, f, indent=2)
-
-# def _save_generation_results(
-#     self, session_id: str, results: List[Dict[str, Any]]
-# ) -> None:
-#     """Save final generation results to content directory"""
-#     results_file = (
-#         self.base_dir / session_id / "content" / "generation_results.json"
-#     )
-#     with open(results_file, "w") as f:
-#         json.dump(
-#             {
-#                 "timestamp": datetime.now().isoformat(),
-#                 "total_panels": len(results),
-#                 "results": results,
-#             },
-#             f,
-#             indent=2,
-#         )

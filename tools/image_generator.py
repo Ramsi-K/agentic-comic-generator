@@ -1,6 +1,7 @@
 import modal
 import io
 import os
+from services.session_id_generator import SessionIdGenerator
 
 # Define the Modal image with required dependencies
 image = modal.Image.debian_slim().pip_install(
@@ -91,7 +92,7 @@ def generate_comic_panel(
 def main():
     prompt = "A K-pop idol walking through a rainy Seoul street, whimsical, soft lighting, watercolor style"
     panel_id = 1
-    session_id = "test_session_modal_image_gen"
+    session_id = SessionIdGenerator.create_session_id("test")
     steps = 1  # SDXL Turbo works best with 1 step
     seed = 42
 

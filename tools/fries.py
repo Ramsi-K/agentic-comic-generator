@@ -1,6 +1,7 @@
 import modal
 import os
 import random
+from services.session_id_generator import SessionIdGenerator
 
 # Load environment variables only when running locally (not in Modal's cloud)
 if modal.is_local():
@@ -116,7 +117,9 @@ async def generate_and_run_script(prompt: str, session_id: str) -> dict:
 
 # Example usage
 @app.local_entrypoint()
-def main(session_id="test_session_fries"):
+def main(session_id=None):
+    if session_id is None:
+        session_id = SessionIdGenerator.create_session_id("test")
     animal = random.choice(
         [
             "cat",

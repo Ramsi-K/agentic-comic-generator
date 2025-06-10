@@ -9,6 +9,7 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from services.session_id_generator import SessionIdGenerator
 
 # Add pytest-asyncio marker
 pytestmark = pytest.mark.asyncio
@@ -18,7 +19,6 @@ from agents.bayko_workflow import create_agent_bayko, BaykoWorkflow
 # Load environment variables
 try:
     from dotenv import load_dotenv
-
     load_dotenv()
 except ImportError:
     pass
@@ -69,11 +69,9 @@ async def test_session_initialization():
     print("\n🧪 Testing Session Initialization")
     print("=" * 60)
 
-    workflow = create_test_workflow(os.getenv("OPENAI_API_KEY"))
-
-    # Test 1: Basic session initialization
+    workflow = create_test_workflow(os.getenv("OPENAI_API_KEY"))    # Test 1: Basic session initialization
     print("\n1️⃣ Testing basic session initialization")
-    session_id = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    session_id = SessionIdGenerator.create_session_id("test")
     workflow.initialize_session(session_id)
 
     assert (
@@ -85,9 +83,8 @@ async def test_session_initialization():
     ), "Message factory should be initialized"
     print("✅ Session services initialized")
 
-    # Test 2: Session with custom conversation ID
-    print("\n2️⃣ Testing session with custom conversation ID")
-    session_id = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    # Test 2: Session with custom conversation ID    print("\n2️⃣ Testing session with custom conversation ID")
+    session_id = SessionIdGenerator.create_session_id("test")
     conv_id = "custom_conv_001"
     workflow.initialize_session(session_id, conv_id)
 
@@ -99,12 +96,10 @@ async def test_session_initialization():
 
 
 async def test_generation_request():
-    """Test generation request handling"""
-    print("\n🧪 Testing Generation Request Processing")
+    """Test generation request handling"""    print("\n🧪 Testing Generation Request Processing")
     print("=" * 60)
-
     workflow = create_test_workflow(os.getenv("OPENAI_API_KEY"))
-    session_id = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    session_id = SessionIdGenerator.create_session_id("test")
     workflow.initialize_session(session_id)
 
     # Create test request

@@ -20,6 +20,7 @@ import random
 from services.unified_memory import AgentMemory
 from services.session_manager import SessionManager as ServiceSessionManager
 from services.message_factory import MessageFactory, AgentMessage, MessageType
+from services.session_id_generator import SessionIdGenerator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

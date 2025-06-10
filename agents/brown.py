@@ -20,6 +20,9 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
 import os
+import json
+from pathlib import Path
+from datetime import datetime
 
 # LlamaIndex imports for multimodal ReActAgent
 try:
@@ -33,6 +36,9 @@ try:
         TextBlock,
         MessageRole,
     )
+
+    from llama_index.core.schema import ImageNode, Document
+    from llama_index.core import SimpleDirectoryReader
     from typing import cast
 except ImportError:
     OpenAIMultiModal = None
@@ -44,6 +50,8 @@ except ImportError:
     ImageBlock = None
     TextBlock = None
     MessageRole = None
+    ImageNode = None
+    Document = None
 
 # Core services
 from services.unified_memory import AgentMemory
@@ -107,23 +115,39 @@ class AgentBrown:
     - Maintain session state and memory
     """
 
-    def __init__(self, max_iterations: int = 3):
+    def __init__(
+        self, max_iterations: int = 3, openai_api_key: Optional[str] = None
+    ):
         self.max_iterations = max_iterations
         self.session_id = None
         self.conversation_id = None
         self.iteration_count = 0
 
-        # Initialize core services
+        # Initialize LLM for prompt enhancement
+        self.llm = None
+        try:
+            if OpenAIMultiModal:
+                self.llm = OpenAIMultiModal(
+                    model="gpt-4o",
+                    api_key=openai_api_key or os.getenv("OPENAI_API_KEY"),
+                    temperature=0.7,
+                    max_tokens=2048,
+                )
+                logger.info("✓ Initialized GPT-4V")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not initialize LLM: {e}")
+
+        # Core services
         self.moderator = ContentModerator()
         self.style_tagger = StyleTagger()
         self.evaluator = SimpleEvaluator()
 
-        # Session-specific services (initialized when session starts)
+        # Session services (initialized later)
         self.memory = None
         self.message_factory = None
         self.session_manager = None
 
-        logger.info("Agent Brown initialized with real services")
+        logger.info("Agent Brown initialized with core services")
 
     def validate_input(self, request: StoryboardRequest) -> ValidationResult:
         """
@@ -215,41 +239,100 @@ class AgentBrown:
 
         return result
 
+    def _ensure_session(self) -> bool:
+        """Ensure session services are initialized"""
+        if not all([self.memory, self.message_factory, self.session_manager]):
+            logger.warning("Session services not initialized")
+            self._initialize_session()
+        return True
+
+    def _safe_memory_add(self, role: str, content: str) -> None:
+        """Safely add message to memory if available"""
+        if self.memory:
+            self.memory.add_message(role, content)
+
     def process_request(self, request: StoryboardRequest) -> AgentMessage:
-        """
-        Process incoming user request and create message for Agent Bayko
-
-        Args:
-            request: User's storyboard request
-
-        Returns:
-            AgentMessage formatted for Agent Bayko
-        """
-        # Initialize new session first
-        self._initialize_session()
-
+        """Process incoming user request and create message for Agent Bayko"""
+        self._ensure_session()
         logger.info(f"Processing request for session {self.session_id}")
 
-        # Log user request to memory
-        self.memory.add_message("user", request.prompt)
+        # Log user request and state to memory
+        self._safe_memory_add(
+            "system",
+            f"Starting new request with session_id: {self.session_id}",
+        )
+        self._safe_memory_add("user", f"Original prompt: {request.prompt}")
+        self._safe_memory_add(
+            "system",
+            f"Request parameters: {json.dumps(asdict(request), indent=2)}",
+        )
 
         # Step 1: Validate input
         validation = self.validate_input(request)
+        self._safe_memory_add(
+            "system",
+            f"Validation result: {json.dumps(asdict(validation), indent=2)}",
+        )
+
         if not validation.is_valid():
+            self._safe_memory_add(
+                "system", f"Validation failed: {validation.issues}"
+            )
             return self.message_factory.create_error_message(
                 validation.issues, validation.suggestions
             )
 
-        # Step 2: Analyze and tag style
+        # Step 2: Use LLM to enhance prompt and analyze style
+        try:
+            if self.llm:
+                enhancement_prompt = f"""Enhance this comic story prompt for visual storytelling:
+                Original: {request.prompt}
+                Style preference: {request.style_preference or 'any'}
+                Panels: {request.panels}
+                
+                Provide:
+                1. Enhanced story description
+                2. Visual style suggestions
+                3. Mood and atmosphere
+                4. Color palette recommendations"""
+
+                self._safe_memory_add(
+                    "system", f"Sending prompt to LLM:\n{enhancement_prompt}"
+                )
+
+                enhancement = self.llm.complete(
+                    enhancement_prompt, image_documents=[]
+                ).text
+                self._safe_memory_add(
+                    "assistant", f"LLM enhanced prompt:\n{enhancement}"
+                )
+            else:
+                enhancement = request.prompt
+                self._safe_memory_add(
+                    "system", "No LLM available, using original prompt"
+                )
+
+        except Exception as e:
+            logger.error(f"LLM enhancement failed: {e}")
+            enhancement = request.prompt
+            self._safe_memory_add("system", f"LLM enhancement failed: {e}")
+
+        # Step 3: Analyze and tag style
         style_analysis = self.style_tagger.analyze_style(
-            request.prompt, request.style_preference
+            enhancement, request.style_preference
+        )
+        self._safe_memory_add(
+            "system",
+            f"Style analysis: {json.dumps(asdict(style_analysis), indent=2)}",
         )
 
-        # Step 3: Create message for Bayko
+        # Step 4: Create message for Bayko
+        if not self.message_factory:
+            self._initialize_session()
+        # Provide an empty list or appropriate dialogues if not available
         message = self.message_factory.create_generation_request(
-            enhanced_prompt=style_analysis.enhanced_prompt,
+            enhanced_prompt=enhancement,
             original_prompt=request.prompt,
-            dialogues=["Ugh… another rainy day. Why am I even out here?", "Wait… is that a puppy? Hey—where's your owner?", "...You’re shivering. Here, come closer.", "Guess we’re both strays today... Let’s stick together."],
             style_tags=style_analysis.style_tags,
             panels=request.panels,
             language=request.language,
@@ -262,73 +345,197 @@ class AgentBrown:
             },
             validation_score=validation.confidence_score,
             iteration=self.iteration_count,
+            dialogues=[],  # Add this argument as required by the method signature
         )
 
-        # Log to memory
-        self.memory.add_message(
-            "assistant", f"Created generation request for Bayko"
-        )
-
-        # Save session state
-        self.session_manager.save_session_state(
-            message,
-            asdict(request),
-            self.memory.get_history(),
-            self.iteration_count,
-        )
+        # Log to memory and save state
+        if self.memory:
+            self.memory.add_message(
+                "assistant",
+                f"Created generation request for Bayko with {len(style_analysis.style_tags)} style tags",
+            )
+        if not self.session_manager:
+            self._initialize_session()
+        if self.session_manager and self.memory:
+            self.session_manager.save_session_state(
+                message,
+                asdict(request),
+                self.memory.get_history(),
+                self.iteration_count,
+            )
 
         logger.info(f"Generated request message {message.message_id}")
         return message
 
-    def review_output(
+    def _safe_image_to_node(self, doc: Document) -> Optional[ImageNode]:
+        """Safely convert document to ImageNode"""
+        try:
+            if hasattr(doc, "image") and doc.image:
+                return ImageNode(text=doc.text or "", image=doc.image)
+        except Exception as e:
+            self._safe_memory_add(
+                "system", f"Failed to convert image to node: {e}"
+            )
+        return None
+
+    def _safe_memory_add(self, role: str, content: str) -> None:
+        """Safely add message to memory if available"""
+        self._ensure_session()
+        if self.memory:
+            self.memory.add_message(role, content)
+
+    async def review_output(
         self,
         bayko_response: Dict[str, Any],
         original_request: StoryboardRequest,
     ) -> Optional[AgentMessage]:
-        """
-        Review Agent Bayko's output and determine if refinement is needed
+        """Review Agent Bayko's output using GPT-4o for image analysis"""
+        self._ensure_session()
 
-        Args:
-            bayko_response: Generated content from Agent Bayko
-            original_request: Original user request for context
-
-        Returns:
-            AgentMessage for refinement request, or None if approved
-        """
-        self.iteration_count += 1
-
-        logger.info(
-            f"Reviewing Bayko output (iteration {self.iteration_count})"
+        # Log review start
+        self._safe_memory_add(
+            "system",
+            f"""Starting review with GPT-4o: {json.dumps({
+                'prompt': original_request.prompt,
+                'panels': len(bayko_response.get('panels', [])),
+                'iteration': self.iteration_count + 1
+            }, indent=2)}""",
         )
 
-        # Use real evaluator
-        print(f"🔍 Brown evaluating Bayko's output...")
-        evaluation = self.evaluator.evaluate(
-            bayko_response, original_request.prompt
-        )
+        try:
+            if not self.llm:
+                raise ValueError("GPT-4o LLM not initialized")
 
-        # Log evaluation to memory
-        if self.memory:
-            self.memory.add_message(
-                "assistant",
-                f"Evaluation: {evaluation['decision']} - {evaluation['reason']}",
+            if "panels" not in bayko_response:
+                raise ValueError("No panels found in Bayko's response")
+
+            # Get session content directory
+            content_dir = Path(f"storyboard/{self.session_id}/content")
+            if not content_dir.exists():
+                raise ValueError(f"Content directory not found: {content_dir}")
+
+            # Prepare image files for analysis
+            image_files = []
+            for panel in bayko_response["panels"]:
+                panel_path = content_dir / f"panel_{panel['id']}.png"
+                if panel_path.exists():
+                    image_files.append(str(panel_path))
+                else:
+                    self._safe_memory_add(
+                        "system",
+                        f"Warning: Panel image not found: {panel_path}",
+                    )
+
+            if not image_files:
+                raise ValueError("No panel images found for review")
+
+            # Load images using SimpleDirectoryReader
+            reader = SimpleDirectoryReader(input_files=image_files)
+            raw_docs = reader.load_data()
+
+            # Convert documents to ImageNodes
+            image_nodes = []
+            for doc in raw_docs:
+                if node := self._safe_image_to_node(doc):
+                    image_nodes.append(node)
+
+            if not image_nodes:
+                raise ValueError("Failed to load any valid images for review")
+
+            self._safe_memory_add(
+                "system",
+                f"Successfully loaded {len(image_nodes)} images for GPT-4o review",
             )
 
-        # Handle evaluation decision
+            # Construct detailed review prompt
+            review_prompt = f"""As an expert art director, analyze these comic panels against the user's original request:
+
+            ORIGINAL REQUEST: {original_request.prompt}
+            STYLE PREFERENCE: {original_request.style_preference or 'Not specified'}
+            REQUESTED PANELS: {original_request.panels}
+
+            Analyze the following aspects:
+            1. Story Accuracy:
+               - Do the panels accurately depict the requested story?
+               - Are the main story beats present?
+               
+            2. Visual Storytelling:
+               - Is the panel flow clear and logical?
+               - Does the sequence effectively convey the narrative?
+               
+            3. Style & Aesthetics:
+               - Does it match any requested style preferences?
+               - Is the artistic quality consistent?
+               
+            4. Technical Quality:
+               - Are the images clear and well-composed?
+               - Is there appropriate detail and contrast?
+
+            Make ONE of these decisions:
+            - APPROVE: If panels successfully tell the story and meet quality standards
+            - REFINE: If specific improvements would enhance the result (list them)
+            - REJECT: If fundamental issues require complete regeneration
+
+            Provide a clear, actionable analysis focusing on how well these panels fulfill the USER'S ORIGINAL REQUEST."""
+
+            # Get GPT-4o analysis
+            analysis = self.llm.complete(
+                prompt=review_prompt, image_documents=image_nodes
+            ).text
+
+            self._safe_memory_add("assistant", f"GPT-4o Analysis:\n{analysis}")
+
+            # Parse decision from analysis
+            decision = "refine"  # Default to refine
+            if "APPROVE" in analysis.upper():
+                decision = "approve"
+            elif "REJECT" in analysis.upper():
+                decision = "reject"
+
+            # Create evaluation result
+            evaluation = {
+                "decision": decision,
+                "reason": analysis,
+                "confidence": 0.85,  # High confidence with GPT-4o
+                "original_prompt": original_request.prompt,
+                "analyzed_panels": len(image_nodes),
+                "style_match": original_request.style_preference or "any",
+            }
+
+            self._safe_memory_add(
+                "system",
+                f"""GPT-4o review complete:\n{json.dumps({
+                    'decision': decision,
+                    'confidence': 0.85,
+                    'analyzed_panels': len(image_nodes)
+                }, indent=2)}""",
+            )
+
+        except Exception as e:
+            logger.error(f"GPT-4o review failed: {str(e)}")
+            self._safe_memory_add(
+                "system",
+                f"GPT-4o review failed, falling back to basic evaluator: {str(e)}",
+            )
+            # Fallback to basic evaluator
+            evaluation = self.evaluator.evaluate(
+                bayko_response, original_request.prompt
+            )
+
+        # Ensure message factory is available
+        if not self.message_factory:
+            self._initialize_session()
+
+        # Create appropriate response message
         if evaluation["decision"] == "approve":
-            print(f"✅ Brown approved: {evaluation['reason']}")
             return self.message_factory.create_approval_message(
                 bayko_response, evaluation, self.iteration_count
             )
-
         elif evaluation["decision"] == "reject":
-            print(f"❌ Brown rejected: {evaluation['reason']}")
             return self.message_factory.create_rejection_message(
                 bayko_response, evaluation, self.iteration_count
             )
-
-        else:  # refine
-            print(f"🔄 Brown requesting refinement: {evaluation['reason']}")
+        else:
             return self.message_factory.create_refinement_message(
                 bayko_response, evaluation, self.iteration_count
             )
@@ -350,12 +557,23 @@ class AgentBrown:
             "max_iterations": self.max_iterations,
         }
 
-    def _initialize_session(self):
-        """Initialize a new session with unique IDs and services"""
-        self.session_id = f"session_{uuid.uuid4().hex[:8]}"
-        self.conversation_id = f"conv_{uuid.uuid4().hex[:8]}"
-        self.iteration_count = 1
+    def _initialize_session(
+        self,
+        session_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+    ):
+        """Initialize a new session with optional existing IDs or generate new ones"""
+        if not self.session_manager:
+            self.session_manager = SessionManager()
 
+        if not session_id:
+            session_id = str(uuid.uuid4())
+
+        if not conversation_id:
+            conversation_id = str(uuid.uuid4())
+
+        self.session_id = session_id
+        self.conversation_id = conversation_id
         # Initialize session-specific services
         self.memory = AgentMemory(self.session_id, "brown")
         self.message_factory = MessageFactory(
@@ -365,20 +583,26 @@ class AgentBrown:
             self.session_id, self.conversation_id
         )
 
-        print(f"🧠 Brown initialized memory for session {self.session_id}")
+        # Log initialization
+        logger.info(
+            f"🧠 Brown initialized memory for session {self.session_id}"
+        )
+        if self.memory:
+            self.memory.add_message(
+                "system", f"Session initialized with ID: {self.session_id}"
+            )
 
 
 # Example usage and testing
 def main():
     """Example usage of Agent Brown"""
-    # Create basic Brown instance
+    # Create Brown instance
     brown = AgentBrown(max_iterations=3)
 
     # Example request
     request = StoryboardRequest(
         prompt="A moody K-pop idol finds a puppy on the street. "
         "It changes everything.",
-        dialogues=["Ugh… another rainy day. Why am I even out here?", "Wait… is that a puppy? Hey—where's your owner?", "...You’re shivering. Here, come closer.", "Guess we’re both strays today... Let’s stick together."]
         style_preference="studio_ghibli",
         panels=4,
         language="korean",
@@ -406,7 +630,8 @@ def main():
     review_result = brown.review_output(bayko_response, request)
     if review_result:
         print("\nReview result:")
-        print(review_result.to_json())
+        # Return the review result
+        return review_result
 
     # Show session info
     print(f"\nSession info: {brown.get_session_info()}")

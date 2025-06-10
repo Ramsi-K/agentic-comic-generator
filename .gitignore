@@ -15,3 +15,4 @@ storyboard/
 memory.db
 *.sqlite3
 *.png
+services/__pycache__/message_factory.cpython-311.pyc

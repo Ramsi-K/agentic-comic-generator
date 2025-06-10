@@ -879,11 +879,11 @@ async def main():
     import os
 
     # Create Bayko agent using the factory function
-    bayko_workflow = create_agent_bayko(os.getenv("OPENAI_API_KEY"))
-
-    # Initialize a test session
-    session_id = "test_session_001"
-    conversation_id = "conv_001"
+    bayko_workflow = create_agent_bayko(
+        os.getenv("OPENAI_API_KEY")
+    )  # Initialize a test session
+    session_id = SessionIdGenerator.create_session_id("test")
+    conversation_id = f"conv_{session_id}"
     bayko_workflow.initialize_session(session_id, conversation_id)
 
     test_message = {
