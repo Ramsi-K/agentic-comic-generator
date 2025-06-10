@@ -7,21 +7,29 @@ import os
 import json
 import asyncio
 from typing import Optional, Dict, Any, List
-from llama_index.llms.openai import OpenAI
+from openai import OpenAI as OpenAIClient
+from llama_index.llms.openai import OpenAI as LlamaOpenAI
 from llama_index.core.agent import ReActAgent
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.tools import FunctionTool, BaseTool
 
+# Standard library imports
+from pathlib import Path
+from datetime import datetime
+
 # Core services
 from services.unified_memory import AgentMemory
 from services.session_manager import SessionManager
-from services.message_factory import MessageFactory
+from services.message_factory import MessageFactory, AgentMessage
+from agents.bayko import AgentBayko
 from agents.bayko_tools import (
     ModalImageGenerator,
-    TTSGenerator,
-    SubtitleGenerator,
+    ModalCodeExecutor,
 )
-from agents.bayko import AgentBayko
+from agents.bayko_workflow_tools import BaykoWorkflowTools
+
+# Custom prompts
+from prompts.bayko_workflow_system_prompt import BAYKO_WORKFLOW_SYSTEM_PROMPT
 
 # Load environment variables
 try:
@@ -31,273 +39,14 @@ try:
 except ImportError:
     pass
 
+from datetime import datetime
+
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
 
-class BaykoTools:
-    """Tool wrapper class for Agent Bayko's LLM-enhanced methods"""
-
-    def __init__(self, bayko_agent: AgentBayko):
-        self.bayko = bayko_agent
-
-    def generate_enhanced_prompt_tool(
-        self, description: str, style_tags: str = "[]", mood: str = "neutral"
-    ) -> str:
-        """Generate LLM-enhanced prompt for SDXL image generation from panel description."""
-        try:
-            style_tags_list = json.loads(style_tags) if style_tags else []
-        except:
-            style_tags_list = []
-
-        result = self.bayko.generate_prompt_from_description(
-            description, style_tags_list, mood
-        )
-
-        return json.dumps(
-            {
-                "enhanced_prompt": result,
-                "original_description": description,
-                "style_tags": style_tags_list,
-                "mood": mood,
-                "llm_used": self.bayko.llm is not None,
-            }
-        )
-
-    def revise_panel_description_tool(
-        self, description: str, feedback: str = "{}", focus_areas: str = "[]"
-    ) -> str:
-        """Revise panel description based on Agent Brown's feedback using LLM."""
-        try:
-            feedback_dict = json.loads(feedback) if feedback else {}
-            focus_areas_list = json.loads(focus_areas) if focus_areas else []
-        except:
-            feedback_dict = {}
-            focus_areas_list = []
-
-        result = self.bayko.revise_panel_description(
-            description, feedback_dict, focus_areas_list
-        )
-
-        return json.dumps(
-            {
-                "revised_description": result,
-                "original_description": description,
-                "feedback_applied": feedback_dict,
-                "focus_areas": focus_areas_list,
-                "llm_used": self.bayko.llm is not None,
-            }
-        )
-
-    async def generate_panel_content_tool(self, panel_data: str) -> str:
-        """Generate complete panel content including image, audio, subtitles, and code execution concurrently."""
-        try:
-            data = json.loads(panel_data)
-        except:
-            return json.dumps({"error": "Invalid panel data JSON"})
-
-        # Extract panel information
-        panel_id = data.get("panel_id", 1)
-        description = data.get("description", "")
-        enhanced_prompt = data.get("enhanced_prompt", "")
-        style_tags = data.get("style_tags", [])
-        language = data.get("language", "english")
-        extras = data.get("extras", [])
-        session_id = data.get("session_id", "default")
-        dialogues = data.get("dialogues", [])
-        code_snippets = data.get("code_snippets", [])
-
-        # Initialize Modal tools
-        from agents.bayko_tools import (
-            ModalImageGenerator,
-            TTSGenerator,
-            SubtitleGenerator,
-            ModalCodeExecutor,
-        )
-
-        image_gen = ModalImageGenerator()
-        tts_gen = TTSGenerator()
-        subtitle_gen = SubtitleGenerator()
-        code_executor = ModalCodeExecutor()
-
-        # Create concurrent tasks for parallel execution
-        tasks = []
-
-        # 1. Always generate image
-        tasks.append(
-            image_gen.generate_panel_image(
-                enhanced_prompt, style_tags, panel_id, session_id
-            )
-        )
-
-        # 2. Generate TTS if dialogues provided
-        if dialogues and panel_id <= len(dialogues):
-            dialogue_text = (
-                dialogues[panel_id - 1]
-                if isinstance(dialogues, list)
-                else str(dialogues)
-            )
-            tasks.append(
-                tts_gen.generate_narration(
-                    dialogue_text, language, panel_id, session_id
-                )
-            )
-        else:
-            tasks.append(asyncio.create_task(asyncio.sleep(0)))  # No-op task
-
-        # 3. Generate subtitles if requested (though this might be removed later)
-        if "subtitles" in extras and dialogues:
-            dialogue_text = (
-                dialogues[panel_id - 1]
-                if isinstance(dialogues, list) and panel_id <= len(dialogues)
-                else description
-            )
-            tasks.append(
-                subtitle_gen.generate_subtitles(
-                    dialogue_text, 3.0, panel_id, session_id
-                )
-            )
-        else:
-            tasks.append(asyncio.create_task(asyncio.sleep(0)))  # No-op task
-
-        # 4. Execute code if provided
-        if code_snippets and panel_id <= len(code_snippets):
-            code_data = (
-                code_snippets[panel_id - 1]
-                if isinstance(code_snippets, list)
-                else code_snippets
-            )
-            if isinstance(code_data, dict):
-                code = code_data.get("code", "")
-                code_language = code_data.get("language", "python")
-                context = code_data.get("context", description)
-            else:
-                code = str(code_data)
-                code_language = "python"
-                context = description
-
-            if code.strip():
-                tasks.append(
-                    code_executor.execute_code(
-                        code, code_language, panel_id, session_id, context
-                    )
-                )
-            else:
-                tasks.append(
-                    asyncio.create_task(asyncio.sleep(0))
-                )  # No-op task
-        else:
-            tasks.append(asyncio.create_task(asyncio.sleep(0)))  # No-op task
-
-        # Execute all tasks concurrently
-        start_time = asyncio.get_event_loop().time()
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        total_time = asyncio.get_event_loop().time() - start_time
-
-        # Process results safely
-        def safe_get_path(result):
-            if isinstance(result, Exception) or result is None:
-                return None
-            if isinstance(result, tuple) and len(result) >= 1:
-                return result[0]
-            return None
-
-        def safe_check_exists(result):
-            path = safe_get_path(result)
-            return path is not None
-
-        image_path = safe_get_path(results[0])
-        audio_path = safe_get_path(results[1])
-        subtitle_path = safe_get_path(results[2])
-        code_path = safe_get_path(results[3])
-
-        # Build result
-        result = {
-            "panel_id": panel_id,
-            "description": description,
-            "enhanced_prompt": enhanced_prompt,
-            "image_path": image_path,
-            "image_url": f"file://{image_path}" if image_path else None,
-            "audio_path": audio_path,
-            "subtitles_path": subtitle_path,
-            "code_result_path": code_path,
-            "style_applied": style_tags,
-            "generation_time": total_time,
-            "status": "completed",
-            "concurrent_execution": True,
-            "tasks_completed": {
-                "image": image_path is not None,
-                "audio": audio_path is not None,
-                "subtitles": subtitle_path is not None,
-                "code": code_path is not None,
-            },
-        }
-
-        return json.dumps(result)
-
-    def get_session_info_tool(self) -> str:
-        """Get current Bayko session information and memory state."""
-        info = self.bayko.get_session_info()
-        return json.dumps(
-            {
-                "session_id": info.get("session_id"),
-                "memory_size": info.get("memory_size", 0),
-                "generation_stats": info.get("generation_stats", {}),
-                "llm_available": self.bayko.llm is not None,
-                "status": "active" if info.get("session_id") else "inactive",
-            }
-        )
-
-    def save_llm_data_tool(self, data_type: str, data: str) -> str:
-        """Save LLM generation or revision data to session storage."""
-        try:
-            data_dict = json.loads(data)
-        except:
-            return json.dumps({"error": "Invalid data JSON"})
-
-        if data_type == "generation":
-            self.bayko._save_llm_generation_data(data_dict)
-        elif data_type == "revision":
-            self.bayko._save_llm_revision_data(data_dict)
-        else:
-            return json.dumps({"error": "Invalid data type"})
-
-        return json.dumps(
-            {
-                "status": "saved",
-                "data_type": data_type,
-                "session_id": self.bayko.current_session,
-            }
-        )
-
-    def create_llamaindex_tools(self) -> List[FunctionTool]:
-        """Create LlamaIndex FunctionTools from Bayko's LLM-enhanced methods"""
-        return [
-            FunctionTool.from_defaults(
-                fn=self.generate_enhanced_prompt_tool,
-                name="generate_enhanced_prompt",
-                description="Generate LLM-enhanced prompt for SDXL image generation. Takes panel description, style tags, and mood. Returns enhanced prompt optimized for text-to-image models.",
-            ),
-            FunctionTool.from_defaults(
-                fn=self.revise_panel_description_tool,
-                name="revise_panel_description",
-                description="Revise panel description based on Agent Brown's feedback using LLM. Takes original description, feedback, and focus areas. Returns improved description.",
-            ),
-            FunctionTool.from_defaults(
-                async_fn=self.generate_panel_content_tool,
-                name="generate_panel_content",
-                description="Generate complete panel content including image, audio, subtitles, and code execution concurrently. Takes panel data JSON with description, style, and generation parameters.",
-            ),
-            FunctionTool.from_defaults(
-                fn=self.get_session_info_tool,
-                name="get_session_info",
-                description="Get current Bayko session information including memory state and generation statistics.",
-            ),
-            FunctionTool.from_defaults(
-                fn=self.save_llm_data_tool,
-                name="save_llm_data",
-                description="Save LLM generation or revision data to session storage. Takes data type ('generation' or 'revision') and data JSON.",
-            ),
-        ]
+"""
+Handle LLM interactions for prompt enhancement and generation flow
+"""
 
 
 class BaykoWorkflow:
@@ -307,96 +56,46 @@ class BaykoWorkflow:
     """
 
     def __init__(self, openai_api_key: Optional[str] = None):
-        # Initialize LLM if available
+        # Initialize LLM if available and not explicitly disabled
         self.llm = None
-        if openai_api_key or os.getenv("OPENAI_API_KEY"):
+
+        # Only initialize if api_key is explicitly provided (not None)
+        if openai_api_key is not None:
             try:
-                self.llm = OpenAI(
-                    model="gpt-4o-mini",
-                    api_key=openai_api_key or os.getenv("OPENAI_API_KEY"),
+                self.llm = LlamaOpenAI(
+                    model="gpt-4",
+                    api_key=openai_api_key,  # Don't use env var
                     temperature=0.7,
-                    max_tokens=1024,
+                    max_tokens=2048,
                 )
+                print("✓ Initialized LlamaIndex LLM for enhanced prompts")
             except Exception as e:
-                print(f"⚠️ Could not initialize LLM: {e}")
+                print(f"⚠️ Could not initialize LlamaIndex LLM: {e}")
                 self.llm = None
 
-        # Initialize core Bayko agent with LLM
-        self.bayko_agent = AgentBayko(llm=self.llm)
+        # Initialize core Bayko agent with matching LLM state
+        self.bayko_agent = AgentBayko()
+        if self.llm:
+            self.bayko_agent.llm = self.llm
 
-        # Initialize session services
+        # Initialize session services as None
         self.session_manager = None
         self.memory = None
         self.message_factory = None
 
         # Create Bayko tools
-        self.bayko_tools = BaykoTools(self.bayko_agent)
+        self.bayko_tools = BaykoWorkflowTools(self.bayko_agent)
         self.tools = self.bayko_tools.create_llamaindex_tools()
 
-        # System prompt for Bayko ReActAgent
-        self.system_prompt = """You are Agent Bayko, the creative content generation specialist in a multi-agent comic generation system.
+        # System prompt for ReAct agent
+        self.system_prompt = BAYKO_WORKFLOW_SYSTEM_PROMPT
 
-🎯 MISSION: Transform Agent Brown's structured requests into high-quality comic content using LLM-enhanced prompts and AI-powered generation.
-
-🔄 WORKFLOW (MUST FOLLOW IN ORDER):
-1. RECEIVE structured request from Agent Brown with panel descriptions and style requirements
-2. ENHANCE prompts using generate_enhanced_prompt tool - create SDXL-optimized prompts
-3. GENERATE content using generate_panel_content tool - create images, audio, subtitles
-4. SAVE LLM data using save_llm_data tool - persist generation and revision data
-5. RESPOND with completed content and metadata
-
-🛠️ TOOLS AVAILABLE:
-- generate_enhanced_prompt: Create LLM-enhanced prompts for SDXL image generation
-- revise_panel_description: Improve descriptions based on feedback using LLM
-- generate_panel_content: Generate complete panel content (images, audio, subtitles)
-- get_session_info: Track session state and generation statistics
-- save_llm_data: Persist LLM generation and revision data to session storage
-
-🧠 LLM ENHANCEMENT:
-- Use LLM to create detailed, vivid prompts for better image generation
-- Incorporate all style tags, mood, and metadata from Agent Brown
-- Generate SDXL-compatible prompts with proper formatting
-- Apply intelligent refinements based on feedback
-
-🎨 CONTENT GENERATION:
-- Create comic panel images using enhanced prompts
-- Generate audio narration when requested
-- Create VTT subtitle files for accessibility
-- Maintain consistent style across all panels
-
-💾 SESSION MANAGEMENT:
-- Save all LLM interactions to session storage
-- Track generation statistics and performance
-- Maintain memory of conversation context
-- Log all activities for audit trail
-
-🏆 HACKATHON SHOWCASE:
-- Demonstrate LLM-enhanced prompt generation
-- Show visible reasoning with Thought/Action/Observation
-- Highlight intelligent content creation workflow
-- Showcase session management and data persistence
-
-✅ COMPLETION:
-When content generation is complete, provide summary with:
-- Number of panels generated
-- LLM enhancements applied
-- Session data saved
-- Generation statistics
-
-🚫 IMPORTANT:
-- Always use LLM enhancement when available
-- Fallback gracefully when LLM unavailable
-- Save all generation data to session
-- Maintain compatibility with Agent Brown's workflow"""
-
-        # Create ReActAgent for content generation
+        # Initialize ReAct agent if we have LLM
         self.agent = None
         if self.llm:
-            # Cast tools to BaseTool for compatibility
             from typing import cast
 
             tools_list = cast(List[BaseTool], self.tools)
-
             self.agent = ReActAgent.from_tools(
                 tools=tools_list,
                 llm=self.llm,
@@ -406,19 +105,61 @@ When content generation is complete, provide summary with:
                 max_iterations=15,
             )
 
+    def initialize_workflow(self):
+        """
+        Initialize core workflow components that don't require session context.
+        Session-specific services should be initialized via initialize_session().
+        """
+        # Only initialize the LLM-powered components if not already done
+        if self.llm and not self.agent:
+            # Initialize ReActAgent with LLM-powered tools
+            from typing import cast
+
+            tools_list = cast(List[BaseTool], self.tools)
+            self.agent = ReActAgent.from_tools(
+                tools=tools_list,
+                llm=self.llm,
+                memory=ChatMemoryBuffer.from_defaults(token_limit=4000),
+                system_prompt=self.system_prompt,
+                verbose=True,
+                max_iterations=15,
+            )
+            print("✓ Initialized ReActAgent with tools")
+
     def initialize_session(
         self, session_id: str, conversation_id: Optional[str] = None
     ):
-        """Initialize session services for Bayko workflow"""
+        """
+        Initialize or reinitialize session-specific services for Bayko workflow.
+        This should be called before processing any requests to ensure proper session context.
+
+        Args:
+            session_id: Unique identifier for this generation session
+            conversation_id: Optional conversation ID. If not provided, will be derived from session_id
+        """
         conversation_id = conversation_id or f"conv_{session_id}"
 
-        # Initialize session services
+        # Initialize or reinitialize session services
         self.session_manager = SessionManager(session_id, conversation_id)
         self.memory = AgentMemory(session_id, "bayko")
         self.message_factory = MessageFactory(session_id, conversation_id)
 
         # Update Bayko agent with session services
         self.bayko_agent._initialize_session(session_id, conversation_id)
+
+        # If we have an LLM agent, ensure its memory is aware of the session
+        if self.agent and hasattr(self.agent, "memory"):
+            from llama_index.core.llms import ChatMessage, MessageRole
+
+            self.agent.memory = ChatMemoryBuffer.from_defaults(
+                token_limit=4000,
+                chat_history=[
+                    ChatMessage(
+                        role=MessageRole.SYSTEM,
+                        content=f"Session ID: {session_id}",
+                    )
+                ],
+            )
 
         print(f"🧠 Bayko workflow initialized for session {session_id}")
 
@@ -449,8 +190,6 @@ Original Prompt: {request_data.get('original_prompt', '')}
 Enhanced Prompt: {request_data.get('prompt', '')}
 Style Tags: {request_data.get('style_tags', [])}
 Panels: {request_data.get('panels', 4)}
-Language: {request_data.get('language', 'english')}
-Extras: {request_data.get('extras', [])}
 Session ID: {request_data.get('session_id', 'default')}
 
 Please generate enhanced prompts and create the comic content."""
@@ -491,15 +230,27 @@ Please generate enhanced prompts and create the comic content."""
 
 def create_agent_bayko(openai_api_key: Optional[str] = None) -> BaykoWorkflow:
     """
-    Factory function to create Agent Bayko workflow with LlamaIndex integration
+    Factory function to create and initialize Agent Bayko workflow
+
+    This function creates a BaykoWorkflow instance with proper initialization of:
+    - LlamaIndex LLM for enhanced prompts
+    - ReActAgent with function tools
+    - Memory and session services
+    - Core Bayko agent with tools
 
     Args:
-        openai_api_key: OpenAI API key for LLM functionality
+        openai_api_key: OpenAI API key for LLM functionality. If None, will try to use environment variable.
 
     Returns:
-        Configured BaykoWorkflow instance with ReActAgent
+        Configured BaykoWorkflow instance with all components initialized
     """
-    return BaykoWorkflow(openai_api_key=openai_api_key)
+    # Create workflow instance
+    workflow = BaykoWorkflow(openai_api_key=openai_api_key)
+
+    # Initialize all workflow components
+    workflow.initialize_workflow()
+
+    return workflow
 
 
 # Example usage for testing
@@ -511,14 +262,21 @@ def main():
         print("❌ Please set OPENAI_API_KEY environment variable")
         return
 
-    # Create workflow
-    workflow = create_agent_bayko()
+    # Create workflow with API key
+    workflow = create_agent_bayko(os.getenv("OPENAI_API_KEY"))
 
-    # Example request from Agent Brown
+    # Test request
     test_request = {
-        "prompt": "A melancholic K-pop idol in designer streetwear walking alone through rain-soaked Seoul streets at twilight, whimsical watercolor style with soft lighting effects",
-        "original_prompt": "A moody K-pop idol finds a puppy on the street. It changes everything.",
-        "style_tags": ["whimsical", "nature", "soft_lighting", "watercolor"],
+        "prompt": "A melancholic K-pop idol discovers a lost puppy in the neon-lit streets of Seoul at night. The encounter changes everything.",
+        "original_prompt": "A K-pop idol finds a puppy that changes their life",
+        "style_tags": [
+            "anime",
+            "soft_lighting",
+            "emotional",
+            "watercolor",
+            "night_scene",
+            "neon_lights",
+        ],
         "panels": 4,
         "language": "korean",
         "extras": ["narration", "subtitles"],
@@ -526,18 +284,185 @@ def main():
     }
 
     # Initialize session
-    workflow.initialize_session("test_session_001")
+    session_id = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    conversation_id = f"conv_{session_id}"
+    workflow.initialize_session(session_id, conversation_id)
 
-    # Process request
-    print("🧪 Testing Bayko Workflow")
+    # Process request with visible reasoning
+    print("\n🤖 Testing Bayko Workflow with LLM Reasoning")
     print("=" * 80)
+    print(f"📝 Original prompt: {test_request['original_prompt']}")
+    print(f"✨ Enhanced prompt: {test_request['prompt']}")
+    print(f"🎨 Style tags: {test_request['style_tags']}")
+    print(f"🖼️  Panels: {test_request['panels']}")
+    print("\n🔄 Processing generation request...")
 
-    result = workflow.process_generation_request(test_request)
-    print(result)
-
-    print("\n" + "=" * 80)
-    print("✅ Test completed!")
+    try:
+        result = workflow.process_generation_request(test_request)
+        print("\n🎉 Generation completed!")
+        print("\n📋 Generation Result:")
+        print("=" * 40)
+        print(result)
+        print("\n✅ Test completed successfully!")
+    except Exception as e:
+        print(f"\n❌ Error during generation: {e}")
+        print("⚠️ Attempting fallback generation...")
+        result = workflow._fallback_generation(test_request)
+        print("\n📋 Fallback Result:")
+        print("=" * 40)
+        print(result)
+        print("\n⚠️ Test completed with fallback")
 
 
 if __name__ == "__main__":
     main()
+
+#     """Process a finalized prompt from Agent Brown, generate per-panel images
+
+#     Args:
+#         message: AgentMessage containing finalized prompt and generation parameters
+
+#     Returns:
+#         List of dictionaries containing generated panel content and metadata
+#     """
+#     session_id = message.context["session_id"]
+#     self.initialize_session(
+#         session_id=session_id,
+#         conversation_id=message.context.get("conversation_id"),
+#     )
+
+#     # Log received message
+#     self.memory.add_message(
+#         "user",
+#         f"Received finalized prompt from Brown: {message.payload.get('prompt', '')}",
+#     )
+
+#     # Extract generation parameters
+#     dialogues = message.payload.get("dialogues", [])
+#     style_tags = message.payload.get("style_tags", [])
+#     mood = message.payload.get("style_config", {}).get("mood", "neutral")
+
+#     # Save initial request state
+#     iteration_data = {
+#         "original_message": message.to_dict(),
+#         "style_tags": style_tags,
+#         "mood": mood,
+#         "num_panels": len(dialogues),
+#         "timestamp": datetime.now().isoformat(),
+#     }
+#     self._save_iteration_data(session_id, 1, iteration_data)
+
+#     final_results = []
+#     for idx, description in enumerate(dialogues):
+#         panel_id = idx + 1
+
+#         # Step 1: Enhance prompt
+#         self.memory.add_message(
+#             "assistant", f"Enhancing prompt for panel {panel_id}..."
+#         )
+#         enhanced_prompt = (
+#             self.bayko_agent.generate_prompt_from_description(
+#                 description=description, style_tags=style_tags
+#             )
+#         )
+
+#         # Log the prompt enhancement
+#         self.memory.add_message(
+#             "system",
+#             f"Panel {panel_id} prompt enhanced:\nOriginal: {description}\nEnhanced: {enhanced_prompt}",
+#         )
+
+#         # Step 2: Generate panel content
+#         panel_input = {
+#             "panel_id": panel_id,
+#             "description": description,
+#             "enhanced_prompt": enhanced_prompt,
+#             "style_tags": style_tags,
+#             "session_id": session_id,
+#         }
+
+#         self.memory.add_message(
+#             "assistant", f"Generating image for panel {panel_id}..."
+#         )
+#         generation_start = datetime.now()
+
+#         try:
+#             result = await self.bayko_agent._generate_panel_content(
+#                 panel_id=panel_id,
+#                 description=description,
+#                 enhanced_prompt=enhanced_prompt,
+#                 style_tags=style_tags,
+#                 session_id=session_id,
+#             )
+
+#             result_dict = result.to_dict()
+#             final_results.append(result_dict)
+
+#             # Log successful generation
+#             self.memory.add_message(
+#                 "system",
+#                 f"Panel {panel_id} generated successfully at {result_dict.get('image_path')}",
+#             )
+
+#         except Exception as e:
+#             error_msg = f"Failed to generate panel {panel_id}: {str(e)}"
+#             self.memory.add_message("system", f"Error: {error_msg}")
+#             logger.error(error_msg)
+
+#             # Add error to results
+#             error_result = {
+#                 "panel_id": panel_id,
+#                 "error": error_msg,
+#                 "status": "failed",
+#                 "timestamp": datetime.now().isoformat(),
+#             }
+#             final_results.append(error_result)
+
+#     # Save final generation results
+#     self._save_generation_results(session_id, final_results)
+
+#     self.memory.add_message(
+#         "assistant",
+#         f"All panels generated for finalized prompt. Total panels: {len(final_results)}",
+#     )
+
+#     return final_results
+
+# def _save_session_state(
+#     self, session_id: str, state: Dict[str, Any]
+# ) -> None:
+#     """Save session state to the agents directory"""
+#     state_file = self.base_dir / session_id / "agents" / "bayko_state.json"
+#     with open(state_file, "w") as f:
+#         json.dump(state, f, indent=2)
+
+# def _save_iteration_data(
+#     self, session_id: str, iteration: int, data: Dict[str, Any]
+# ) -> None:
+#     """Save iteration-specific data"""
+#     iteration_file = (
+#         self.base_dir
+#         / session_id
+#         / "iterations"
+#         / f"v{iteration}_generation.json"
+#     )
+#     with open(iteration_file, "w") as f:
+#         json.dump(data, f, indent=2)
+
+# def _save_generation_results(
+#     self, session_id: str, results: List[Dict[str, Any]]
+# ) -> None:
+#     """Save final generation results to content directory"""
+#     results_file = (
+#         self.base_dir / session_id / "content" / "generation_results.json"
+#     )
+#     with open(results_file, "w") as f:
+#         json.dump(
+#             {
+#                 "timestamp": datetime.now().isoformat(),
+#                 "total_panels": len(results),
+#                 "results": results,
+#             },
+#             f,
+#             indent=2,
+#         )
