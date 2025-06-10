@@ -1,5 +1,17 @@
+# Environment and local config
 .env
 config.py
+
+# Compiled Python artifacts
 *.pyc
-*.__pycache__
 __pycache__/
+*__pycache__*
+
+# Asset folders
+assets/
+
+# Storyboard sessions and local DBs
+storyboard/
+memory.db
+*.sqlite3
+*.png
