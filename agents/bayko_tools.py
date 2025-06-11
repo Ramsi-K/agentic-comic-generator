@@ -62,15 +62,20 @@ class ModalImageGenerator:
             )
 
         start_time = time.time()
-        try:  # Call the Modal function directly
-            with self.app.run():
-                img_bytes, duration = await self.generate_panel.remote.aio(
+        try:  # Call the Modal function directly - FIXED: Use asyncio executor for sync Modal call
+            import asyncio
+
+            loop = asyncio.get_event_loop()
+            img_bytes, duration = await loop.run_in_executor(
+                None,
+                lambda: self.generate_panel.remote(
                     prompt=prompt,
                     panel_id=panel_id,
                     session_id=session_id,
                     steps=1,  # Using SDXL Turbo default
                     seed=42,
-                )
+                ),
+            )
 
             # Create output path and save the image
             content_dir = Path(f"storyboard/{session_id}/content")

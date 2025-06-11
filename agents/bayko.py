@@ -137,9 +137,7 @@ class AgentBayko:
             "errors": [],
         }
 
-    async def process_generation_request(
-        self, message: Dict[str, Any]
-    ) -> AgentMessage:
+    async def process_generation_request(self, message: Any) -> AgentMessage:
         """
         Process generation request from Agent Brown
 
@@ -151,16 +149,52 @@ class AgentBayko:
         """
         start_time = time.time()
 
-        # Handle both direct dict from Brown and wrapped message formats
-        if "payload" in message:
-            # Wrapped message format
-            payload = message.get("payload", {})
-            context = message.get("context", {})
-            session_id = context.get("session_id")
+        # Handle different input types from Brown
+        if isinstance(message, list):
+            # If it's a list, it's probably a chat history - extract the last user message
+            if message and hasattr(message[-1], "content"):
+                # Try to parse JSON from the content
+                try:
+                    import json
+
+                    payload = json.loads(message[-1].content)
+                    session_id = payload.get("session_id", "hackathon_session")
+                except:
+                    # Fallback - create basic payload
+                    payload = {
+                        "prompt": (
+                            str(message[-1].content)
+                            if message
+                            else "Generate a comic"
+                        ),
+                        "session_id": "hackathon_session",
+                    }
+                    session_id = "hackathon_session"
+            else:
+                # Empty list fallback
+                payload = {
+                    "prompt": "Generate a comic",
+                    "session_id": "hackathon_session",
+                }
+                session_id = "hackathon_session"
+        elif isinstance(message, dict):
+            # Handle both direct dict from Brown and wrapped message formats
+            if "payload" in message:
+                # Wrapped message format
+                payload = message.get("payload", {})
+                context = message.get("context", {})
+                session_id = context.get("session_id", "hackathon_session")
+            else:
+                # Direct dict from Brown workflow
+                payload = message
+                session_id = message.get("session_id", "hackathon_session")
         else:
-            # Direct dict from Brown workflow
-            payload = message
-            session_id = message.get("session_id", "hackathon_session")
+            # Fallback for any other type
+            payload = {
+                "prompt": str(message),
+                "session_id": "hackathon_session",
+            }
+            session_id = "hackathon_session"
 
         if not session_id:
             session_id = "hackathon_session"

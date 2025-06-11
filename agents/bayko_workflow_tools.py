@@ -101,6 +101,7 @@ class BaykoWorkflowTools:
         )
 
         # 4. Execute code if provided
+        code_snippets = data.get("code_snippets", [])
         if code_snippets and panel_id <= len(code_snippets):
             code_data = (
                 code_snippets[panel_id - 1]
@@ -117,7 +118,7 @@ class BaykoWorkflowTools:
                 context = description
 
             if code.strip():
-                tasks.append(code_executor.execute_code(prompt, session_id))
+                tasks.append(code_executor.execute_code(context, session_id))
             else:
                 tasks.append(
                     asyncio.create_task(asyncio.sleep(0))

@@ -110,12 +110,14 @@ def generate_comic_panel(prompt: str, style: str) -> bytes:
 
 ### Sponsor API Integration
 
-- **OpenAI GPT-4**: Dialogue generation and character voice consistency
-- **Mistral**: Style adaptation and tone refinement
-- **HuggingFace**: SDXL model hosting and inference
-- **Modal**: Serverless GPU compute for image/audio generation
+| Service          | Primary Use                    | Secondary Use       |
+| ---------------- | ------------------------------ | ------------------- |
+| **OpenAI GPT-4** | Agent reasoning & tool calling | Dialogue generation |
+| **Mistral**      | Code generation & execution    | Style adaptation    |
+| **HuggingFace**  | SDXL model hosting             | Model inference     |
+| **Modal**        | Serverless GPU compute         | Sandbox execution   |
 
-> Mistral Agents: Investigated experimental client.beta.agents framework for dynamic task routing, but deferred due to limited stability at time of build.
+> **Note**: Investigated Mistral's experimental `client.beta.agents` framework for dynamic task routing, but deferred due to limited stability during hackathon timeframe.
 
 ### LlamaIndex Agent Memory
 
@@ -178,63 +180,28 @@ def create_comic_interface():
 
 ## 🚀 Deployment Configuration
 
-### HuggingFace Spaces Frontend
+### Multi-Service Architecture
 
-```yaml
-# spaces_config.yml
-title: Agentic Comic Generator
-emoji: 🎨
-colorFrom: blue
-colorTo: purple
-sdk: gradio
-sdk_version: '4.0.0'
-app_file: app.py
-pinned: false
-license: mit
-```
+| Component         | Platform           | Configuration                   |
+| ----------------- | ------------------ | ------------------------------- |
+| **Frontend**      | HuggingFace Spaces | Gradio 4.0.0, Real-time UI      |
+| **Backend**       | Modal Functions    | GPU compute, persistent storage |
+| **Orchestration** | LlamaIndex         | Agent coordination & memory     |
 
-### Modal Backend Services
+### Environment Variables
 
 ```python
-# modal_app.py
-import modal
+# Required API keys for sponsor integrations
+OPENAI_API_KEY=your_openai_key
+MISTRAL_API_KEY=your_mistral_key
+HF_TOKEN=your_huggingface_token
+MODAL_TOKEN_ID=your_modal_id
+MODAL_TOKEN_SECRET=your_modal_secret
 
-app = modal.App("agentic-comic-generator")
-
-# Shared volume for agent state persistence
-volume = modal.Volume.from_name("comic-generator-storage")
-
-@app.function(
-    image=modal.Image.debian_slim().pip_install_from_requirements("requirements.txt"),
-    volumes={"/storage": volume},
-    keep_warm=1
-)
-def agent_orchestrator():
-    # Main agent coordination logic
-    pass
-```
-
-### Environment Configuration
-
-```python
-# config.py
-import os
-from pydantic import BaseSettings
-
-class Settings(BaseSettings):
-    # Sponsor API Keys
-    openai_api_key: str = os.getenv("OPENAI_API_KEY")
-    mistral_api_key: str = os.getenv("MISTRAL_API_KEY")
-    hf_token: str = os.getenv("HF_TOKEN")
-
-    # Modal configuration
-    modal_token_id: str = os.getenv("MODAL_TOKEN_ID")
-    modal_token_secret: str = os.getenv("MODAL_TOKEN_SECRET")
-
-    # Application settings
-    max_iterations: int = 3
-    timeout_seconds: int = 300
-    debug_mode: bool = False
+# Application settings
+MAX_ITERATIONS=3
+TIMEOUT_SECONDS=300
+DEBUG_MODE=false
 ```
 
 ---

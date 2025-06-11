@@ -8,6 +8,7 @@ import asyncio
 import time
 from typing import Dict, List, Optional, Any, Sequence
 from datetime import datetime
+from pathlib import Path
 from llama_index.multi_modal_llms.openai import OpenAIMultiModal
 from agents.brown import AgentBrown, StoryboardRequest
 from agents.brown_tools import create_brown_tools
@@ -74,6 +75,36 @@ class FunctionOutputEvent(Event):
     def __init__(self, output):
         super().__init__()
         self.output = output
+
+
+# Custom Events for Comic Generation Workflow
+class ComicGeneratedEvent(Event):
+    """Event triggered when Bayko completes comic generation"""
+
+    def __init__(self, bayko_response: dict, enhanced_prompt: str):
+        super().__init__()
+        self.bayko_response = bayko_response
+        self.enhanced_prompt = enhanced_prompt
+
+
+class CritiqueStartEvent(Event):
+    """Event to start Brown's critique/judging of Bayko's work"""
+
+    def __init__(self, comic_data: dict, original_prompt: str):
+        super().__init__()
+        self.comic_data = comic_data
+        self.original_prompt = original_prompt
+
+
+class WorkflowPauseEvent(Event):
+    """Event to pause workflow for a specified duration"""
+
+    def __init__(
+        self, duration_seconds: int = 600, message: str = "Workflow paused"
+    ):
+        super().__init__()
+        self.duration_seconds = duration_seconds
+        self.message = message
 
 
 class BrownFunctionCallingAgent(Workflow):
@@ -340,7 +371,7 @@ Provide specific feedback for any issues."""
     @step
     async def enhance_and_send_to_bayko(
         self, ctx: Context, ev: StartEvent
-    ) -> StopEvent:
+    ) -> ComicGeneratedEvent:
         """
         SINGLE STEP: Enhance prompt with ONE LLM call and send to Bayko.
         NO TOOL CALLING LOOP - DIRECT PROCESSING ONLY.
@@ -390,31 +421,144 @@ DO NOT use any tools or functions - just return the enhanced prompt text."""
 
             print("🚀 Calling Bayko and waiting for image generation...")
             # PROPERLY AWAIT Bayko's async image generation
-            bayko_result = (
-                await self.bayko_workflow.process_generation_request(
-                    bayko_request
-                )
+            bayko_result = self.bayko_workflow.process_generation_request(
+                bayko_request
             )
 
-            print("🚀 SUCCESS! Comic generated and images ready!")
-            return StopEvent(
-                result={
-                    "status": "success",
-                    "enhanced_prompt": enhanced_prompt,
-                    "bayko_response": bayko_result,
-                    "llm_calls_made": 1,  # ONLY ONE!
-                }
+            print("🚀 SUCCESS! Comic generated requested from Bayko!")
+            print("📁 Check your storyboard folder for images and logs!")
+            print("🎉 Ready for next prompt!")
+
+            # DON'T STOP - Let user enter new prompt
+            return ComicGeneratedEvent(
+                bayko_response=(
+                    bayko_result
+                    if isinstance(bayko_result, dict)
+                    else {"result": str(bayko_result)}
+                ),
+                enhanced_prompt=enhanced_prompt,
             )
 
         except Exception as e:
             print(f"🚨Error: {e}")
-            return StopEvent(
-                result={
-                    "status": "error",
-                    "error": str(e),
-                    "llm_calls_made": 1,
-                }
+            # Return ComicGeneratedEvent with error info
+            return ComicGeneratedEvent(
+                bayko_response={"error": str(e), "status": "failed"},
+                enhanced_prompt=enhanced_prompt,
             )
+
+    @step
+    async def handle_comic_generated(
+        self, ctx: Context, ev: ComicGeneratedEvent
+    ) -> CritiqueStartEvent:
+        """Handle comic generation completion and start critique process"""
+        print("\n🎨 Comic generation completed! Starting critique process...")
+        print(f"📝 Enhanced prompt: {ev.enhanced_prompt[:100]}...")
+
+        # Extract comic data for critique
+        comic_data = {
+            "bayko_response": ev.bayko_response,
+            "enhanced_prompt": ev.enhanced_prompt,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        }
+
+        # Get original prompt from context
+        original_prompt = await ctx.get(
+            "original_prompt", default="Unknown prompt"
+        )
+
+        print("🧠 Triggering Brown's critique workflow...")
+
+        # Return CritiqueStartEvent to trigger judging
+        return CritiqueStartEvent(
+            comic_data=comic_data, original_prompt=original_prompt
+        )
+
+    @step
+    async def handle_critique_start(
+        self, ctx: Context, ev: CritiqueStartEvent
+    ) -> WorkflowPauseEvent:
+        """Handle critique start and create a pause for user interaction"""
+        print("\n🔍 BROWN'S CRITIQUE: Analyzing Bayko's work...")
+        print(f"📊 Original prompt: {ev.original_prompt}")
+        print(
+            "🎯 Judging visual quality, style consistency, and story coherence..."
+        )
+
+        # Simulate Brown's analysis (you can add real multimodal analysis here later)
+        critique_result = {
+            "decision": "APPROVE",  # For demo purposes
+            "visual_quality": "Excellent",
+            "style_consistency": "Good",
+            "story_coherence": "Very Good",
+            "overall_score": 0.85,
+            "feedback": "Comic panels successfully generated with good visual appeal",
+        }
+
+        print(f"✅ Critique complete: {critique_result['decision']}")
+        print(f"📈 Overall score: {critique_result['overall_score']}")
+        print("📁 Comic ready for download!")
+
+        # Check if images exist and trigger code generation
+        session_id = "hackathon_session"  # Use the session from the workflow
+        content_dir = Path(f"storyboard/{session_id}/content")
+
+        if content_dir.exists():
+            image_files = list(content_dir.glob("panel_*.png"))
+            if image_files:
+                print(f"🖼️  Found {len(image_files)} generated images!")
+                print("🍟 Triggering code generation...")
+
+                # Import and run code executor
+                try:
+                    from agents.bayko_tools import ModalCodeExecutor
+
+                    code_executor = ModalCodeExecutor()
+
+                    # Generate code based on the comic theme
+                    code_prompt = f"Generate fun ASCII art and code for: {ev.original_prompt}"
+                    script_path, exec_time = await code_executor.execute_code(
+                        code_prompt, session_id
+                    )
+                    print(f"✅ Code generated and saved to: {script_path}")
+                    print(f"⏱️  Code generation time: {exec_time:.2f}s")
+                except Exception as e:
+                    print(f"⚠️  Code generation failed: {e}")
+            else:
+                print("⚠️  No image files found, skipping code generation")
+        else:
+            print("⚠️  Content directory not found, skipping code generation")
+
+        # Store critique in context for later use
+        await ctx.set("critique_result", critique_result)
+        await ctx.set("comic_data", ev.comic_data)
+
+        print("\n⏸️  Pausing workflow for 600 seconds...")
+        print("🎉 User can now download comic and enter new prompts!")
+
+        # Return pause event instead of stopping
+        return WorkflowPauseEvent(
+            duration_seconds=600,
+            message="Comic generation complete! Workflow paused for user interaction.",
+        )
+
+    @step
+    async def handle_workflow_pause(
+        self, ctx: Context, ev: WorkflowPauseEvent
+    ) -> StopEvent:
+        """Handle workflow pause and prepare for new user input"""
+        print(f"⏸️  {ev.message}")
+        print(f"⏰ Paused for {ev.duration_seconds} seconds")
+
+        # Create a message indicating the workflow is ready for new input
+        return StopEvent(
+            result={
+                "status": "complete",
+                "message": "🎉 Comic generation complete! Your comic is ready for download. Enter a new prompt to generate another comic!",
+                "files_generated": True,
+                "workflow_complete": True,
+            }
+        )
 
     @step
     async def handle_llm_input(

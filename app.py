@@ -1,3 +1,36 @@
+"""
+🚧 PROJECT STATUS DISCLAIMER 🚧
+
+This agentic comic generator project demonstrates a multi-agent workflow architecture
+but is NOT fully functional due to several technical limitations:
+
+KNOWN LIMITATIONS:
+1. 🔴 OpenAI API Rate Limits: Severe restrictions on GPT-4 usage (3 requests/min)
+2. 🔴 Modal .remote() Integration: Gradio doesn't support Modal's serverless functions properly
+3. 🔴 Deployment Constraints: Full pipeline requires Modal infrastructure not available in this demo
+
+WHAT WORKS:
+✅ Individual agent components (Brown & Bayko) function correctly
+✅ Agent-to-agent communication protocols are implemented
+✅ LlamaIndex workflow architecture is properly structured
+✅ UI components and chat interface work as intended
+✅ Tool calling and response handling mechanisms are functional
+
+WHAT'S INCOMPLETE:
+❌ End-to-end comic generation pipeline
+❌ Image generation via Modal serverless functions
+❌ Full multi-iteration refinement workflow
+❌ Production-ready error handling and recovery
+
+This represents a proof-of-concept implementation showcasing the architectural
+approach for multi-agent comic generation. The individual components communicate
+effectively, but the complete workflow requires infrastructure beyond the current
+deployment environment's capabilities.
+
+For a fully functional version, deploy with proper Modal credentials and
+infrastructure setup as outlined in the technical specifications.
+"""
+
 import gradio as gr
 import time
 import json
@@ -270,7 +303,32 @@ def set_api_key(api_key):
 with gr.Blocks() as demo:
     gr.Markdown(
         """
-        ⚠️ **Warning:** This demo is subject to OpenAI's strict rate limits (3 requests/min for gpt-4o). You may experience long waits (20+ seconds) between steps. If you see a rate limit error, please wait and try again, or use your own OpenAI API key above.
+        # 🚧 PROJECT STATUS DISCLAIMER 🚧
+        
+        **This agentic comic generator is a PROOF-OF-CONCEPT demonstration with known limitations:**
+        
+        ### 🔴 Known Issues:
+        - **OpenAI Rate Limits:** Severe restrictions (3 requests/min for GPT-4)
+        - **Modal Integration:** Gradio doesn't support Modal .remote() functions properly
+        - **Infrastructure:** Full pipeline requires Modal serverless deployment
+        
+        ### ✅ What Works:
+        - Individual agent components (Brown & Bayko) function correctly
+        - Agent-to-agent communication protocols are implemented
+        - UI components and workflow architecture are functional
+        
+        ### ❌ What's Incomplete:
+        - End-to-end comic generation pipeline
+        - Image generation via Modal serverless functions
+        - Full multi-iteration refinement workflow
+        
+        **This demonstrates the architectural approach but is NOT a complete working system.**
+        """
+    )
+
+    gr.Markdown(
+        """
+        ⚠️ **Additional Warning:** This demo is subject to OpenAI's strict rate limits (3 requests/min for gpt-4o). You may experience long waits (20+ seconds) between steps. If you see a rate limit error, please wait and try again, or use your own OpenAI API key with higher limits.
         """
     )
 
@@ -377,8 +435,8 @@ with gr.Blocks() as demo:
         """
         ---
         <center>
-        <b>Built with 🦙 LlamaIndex, Modal Labs, and Gradio for the Hugging Face Hackathon!</b>
-        <br>Using GPT-4V for intelligent comic analysis
+        <b>Built with 🦙 LlamaIndex, Modal Labs, MistralAI and Gradio for the Hugging Face Hackathon!</b>
+        <br>Using GPT-4 for intelligent comic analysis
         </center>
         """
     )
