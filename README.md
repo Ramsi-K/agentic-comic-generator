@@ -1,70 +1,36 @@
----
-title: Agentic Comic Generator - Bayko & Brown
-emoji: 🦙🎨
-colorFrom: blue
-colorTo: pink
-sdk: gradio
-sdk_version: 4.44.0
-app_file: app.py
-tags:
-  - agent-demo-track
-  - mcp-server-track
-  - llamaindex
-  - multi-agent
-  - comic-generation
-pinned: false
----
-
-📫 [LinkedIn](https://www.linkedin.com/in/ramsikalia/)
-🔗 [GitHub](https://github.com/Ramsi-K)
-📬 Drop me a message if you want to collaborate or hire!
-
-# 🎨 Bayko & Brown: The Agentic Comic Generator
-
-> ✨ **An ambitious multi-agent system for the [Hugging Face Hackathon](https://huggingface.co/competitions/llamaindex-hackathon)**
->
-> 🚀 **Demonstrating advanced agent coordination, LlamaIndex workflows, and creative AI storytelling**
-
-**⚠️ HACKATHON TRANSPARENCY:** This is a complex, experimental system that pushes the boundaries of what's possible with current AI infrastructure. While some components face integration challenges (Modal deployment, OpenAI rate limits, LlamaIndex workflow complexity), the architecture and implementation represent significant technical achievement and innovation.
+# 🎨 The Agentic Comic Generator: Bayko & Brown
 
 ![Python](https://img.shields.io/badge/language-python-blue)
-![Gradio](https://img.shields.io/badge/frontend-Gradio-orange)
-![Modal](https://img.shields.io/badge/running-Modal-lightgrey)
 ![LlamaIndex](https://img.shields.io/badge/orchestrator-LlamaIndex-9cf)
 
----
+## Status
 
-### 💡 Tech Sponsors
-
-This project integrates all key hackathon sponsors:
-
-| Tool           | Used For                                       |
-| -------------- | ---------------------------------------------- |
-| 🦙 LlamaIndex  | ReActAgent + FunctionTools                     |
-| 🤖 OpenAI      | GPT-4o reasoning and multimodal                |
-| 🧠 Mistral     | Code Generation and Execution in Modal Sandbox |
-| 🎨 HuggingFace | SDXL image generation on Modal                 |
-| ⚡ Modal       | Serverless compute + sandbox exec              |
+🛑 Archived — Hackathon project, not under active development.
 
 ---
 
-## 🎯 What This Project Achieves
+## ⚙️ Overview
 
-**This is a sophisticated exploration of multi-agent AI systems** that demonstrates:
+Bayko & Brown is an experimental system where two agents collaborate:
 
-### 🏗️ **Advanced Architecture**
+- **Agent Brown (orchestrator)**  
+  Validates prompts, manages workflow, critiques outputs, and coordinates tools.
 
-- **Dual-Agent Coordination**: Brown (orchestrator) and Bayko (generator) with distinct roles
-- **LlamaIndex Workflows**: Custom event-driven workflows with `ComicGeneratedEvent`, `CritiqueStartEvent`, `WorkflowPauseEvent`
-- **ReAct Agent Pattern**: Visible Thought/Action/Observation cycles for transparent reasoning
-- **Async/Sync Integration**: Complex Modal function calls within async LlamaIndex workflows
+- **Agent Bayko (generator)**  
+  Uses Modal functions to run Hugging Face SDXL for image generation.
 
-### 🧠 **Technical Innovation**
+Together they generate short comic strips from a single user prompt.
 
-- **Custom Event System**: Built sophisticated workflow control beyond basic LlamaIndex patterns
-- **Multi-Modal Processing**: GPT-4o for image analysis, SDXL for generation, Mistral for enhancement
-- **Memory Management**: Persistent conversation history across agent interactions
-- **Error Handling**: Robust fallback systems and rate limit management
+---
+
+## 🏗️ Architecture
+
+- **Dual-agent setup** → Brown (reasoning) and Bayko (generation).
+- **LlamaIndex workflows** → custom event-driven workflows with `ComicGeneratedEvent`, `CritiqueStartEvent`, `WorkflowPauseEvent`etc.
+- **ReAct pattern** → Thought / Action / Observation cycle for transparency.
+- **Modal functions** → serverless endpoints for SDXL generation.
+- **Memory buffer** → simple history store so Brown can critique and revise Bayko’s outputs.
+- **Unified memory service** → combines in-memory logs with SQLite persistence for debugging and replay.
 
 ### 🎨 **Creative AI Pipeline**
 
@@ -73,24 +39,24 @@ This project integrates all key hackathon sponsors:
 - **Quality Assessment**: Brown critiques Bayko's output with approval/refinement cycles
 - **Multi-Format Output**: Images, subtitles, and interactive code generation
 
-## 🚧 **Hackathon Reality Check**
+---
 
-**What Works:**
+## 🚧 Hackathon Outcome
 
-- ✅ Complete agent architecture and workflow design
-- ✅ LlamaIndex integration with custom events and memory
-- ✅ Gradio interface with real-time progress updates
-- ✅ Modal function definitions for SDXL and code execution
-- ✅ Comprehensive error handling and fallback systems
+### What worked
 
-**Current Challenges:**
+- Agent architecture and workflows implemented end-to-end.
+- Custom events and memory integration in LlamaIndex.
+- Data capture / logging pipeline functional.
 
-- ⚠️ Modal deployment complexity in hackathon timeframe
-- ⚠️ OpenAI rate limiting (3 requests/minute) affecting workflow
-- ⚠️ LlamaIndex workflow async/sync integration edge cases
-- ⚠️ Infrastructure coordination between multiple cloud services
+### What didn’t
 
-**The Achievement:** Building a working multi-agent system with this level of sophistication in a hackathon timeframe represents significant technical accomplishment, even with deployment challenges.
+- **API limits** → OpenAI caps caused failures during multi-step agent runs.
+- **ReAct agent loop** → Brown sometimes looped without triggering Bayko.
+- **Modal deployment** → too complex to fully stabilize during hackathon.
+- **Library churn** → days after submission, LlamaIndex released new memory + orchestration features that made major parts of the custom code obsolete.
+
+---
 
 ## 📸 Example Prompt
 
@@ -106,62 +72,9 @@ This project integrates all key hackathon sponsors:
 
 ---
 
-## 🧱 Agent Roles
+## 📂 Repo Structure
 
-### 🤖 Agent Brown
-
-- Built with `LlamaIndex ReActAgent`
-- Calls tools like `validate_input`, `process_request`, `review_output`
-- Uses GPT-4 or GPT-4V for reasoning
-- Controls the flow: validation → generation → quality review
-
-### 🎨 Agent Bayko
-
-- Deterministic generation engine
-- Uses Modal to run SDXL (via Hugging Face Diffusers)
-- Can generate: images, TTS audio, subtitles
-- Responds to structured messages only – no LLM inside
-
----
-
-## 🧠 LlamaIndex Memory & Workflow Highlights
-
-This project integrates **LlamaIndex** to power both agent memory and the ReAct workflow. Brown and Bayko share a persistent memory buffer so decisions can be reviewed across multiple iterations. LlamaIndex also provides the FunctionTool and workflow abstractions that make the agent interactions transparent and replayable. The [`memory_handling.md`](./memory_handling.md) document covers the integration in detail and shows how messages are stored and evaluated.
-
-Additional highlights:
-
-- **Multi-modal GPT-4o** is used by Brown for image analysis and tool calling.
-- **ReActAgent** drives Bayko's creative process with visible Thought/Action/Observation steps.
-- **Modal** functions run heavy generation jobs (SDXL image creation, Codestral code execution) on serverless GPUs.
-- A **unified memory** service combines in-memory chat logs with SQLite persistence for easy debugging and replay.
-- Comprehensive tests under `tests/` demonstrate LLM integration, session management and end-to-end generation.
-
----
-
-## 💡 Use Cases
-
-The system is designed for quick story prototyping and creative experiments.
-Typical scenarios include:
-
-- Generating short comics from a single prompt with automatic style tagging.
-- Running demo stories such as _"K-pop Idol & Puppy"_ via `run_pipeline.py`.
-- Creating custom panels with narration and subtitles for accessibility.
-- Experimenting with the `tools/fries.py` script for fun ASCII art or code generation using Mistral Codestral.
-
----
-
-## 🚀 Future Enhancements
-
-- **Richer Memory Backends** – plug in Redis or Postgres for cross-session persistence.
-- **Advanced Evaluation** – leverage multimodal scoring to automatically rate image quality and narrative flow.
-- **Interactive Web App** – combine the FastAPI backend and Gradio interface for real-time progress updates.
-- **Additional Tools** – new Modal functions for style transfer, video exports and interactive AR panels.
-
----
-
-## 📂 File Layout
-
-```
+```yaml
 agents/
 ├── brown.py           # AgentBrown core class
 ├── brown_tools.py     # LlamaIndex tool wrappers
@@ -178,40 +91,22 @@ requirements.txt
 
 ---
 
-## 🏁 **Hackathon Submission Summary**
+## 🔮 Reflections / Post-Mortem
 
-**Submitted for:**
+This was my **first hackathon project**. I learned more about _how to hackathon_ than about shipping production code.
 
-- 🧠 **Track 1 – Agent Demo Track**
-- 📡 **Track 2 – MCP Server Track**
+### Key lessons
 
-**Key Innovation Highlights:**
+- **Library choices matter** → LlamaIndex agents weren’t ideal for long-term memory orchestration. A cleaner design would separate agents and add a RAG memory layer, rather than force everything through LlamaIndex agents.
+- **APIs are a bottleneck** → ReAct agents made too many calls; local models would have been better for testing loops.
+- **Hackathon ≠ production** → I optimized for survival and demo, not maintainability.
+- **Churn is real** → The week after the Hackathon ended, LlamaIndex had added memory blocks and orchestration primitives that replaced much of my custom work.
 
-### 🚀 **Technical Innovation**
+## Future
 
-- **Custom Workflow Events**: `ComicGeneratedEvent`, `CritiqueStartEvent`, `WorkflowPauseEvent`
-- **Async Modal Integration**: Complex bridge between sync Modal functions and async LlamaIndex workflows
-- **Multi-Modal Reasoning**: GPT-4V analyzing generated images for quality assessment
-- **Agent Memory Persistence**: Cross-session conversation history with LlamaIndex Memory
+I still care about multi-agent memory and orchestration, but I’ll explore it differently in future projects (separate agent design, RAG-driven memory). This repo remains as a record of the experiment.
 
-### 🎨 **Creative Vision**
-
-- **Interactive Elements**: Code generation for comic viewers and interactive features
-- **Accessibility Focus**: Multi-format output including subtitles and narration
-
-## 🌟 **Why This Matters**
-
-**This isn't just a demo - it's a blueprint for sophisticated AI agent coordination.**
-
-In a hackathon timeframe, building a system that:
-
-- Coordinates multiple AI agents with distinct personalities and capabilities
-- Integrates 5+ different AI services seamlessly
-- Implements custom workflow patterns beyond existing frameworks
-- Handles real-world challenges like rate limiting and async complexity
-- Maintains code quality with comprehensive testing
-
-**...represents significant technical achievement and innovation in the multi-agent AI space.**
+---
 
 ## 🎬 **Demo & Documentation**
 
@@ -223,4 +118,5 @@ In a hackathon timeframe, building a system that:
 
 _Let Bayko cook. Let Brown judge. Let comics happen._
 
-**⭐ If you appreciate ambitious hackathon projects that push boundaries, this one's for you!**
+📫 [LinkedIn](https://www.linkedin.com/in/ramsikalia/)  
+🔗 [GitHub](https://github.com/Ramsi-K)

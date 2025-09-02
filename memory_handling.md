@@ -2,8 +2,6 @@
 
 ## Hackathon Implementation Guide
 
-> 🎯 **Simple, real, shippable memory and evaluation for multi-agent comic generation**
-
 ---
 
 ## 🧠 LlamaIndex Memory Integration
@@ -125,7 +123,7 @@ def sync_to_sqlite(llama_memory: LlamaMemory, sqlite_memory: SQLiteMemory):
 
 ---
 
-## ✅ Simple Evaluation Logic
+## Evaluation Logic
 
 ### Basic Evaluator Class
 
@@ -298,40 +296,3 @@ class AgentBrown:
 ```
 
 ---
-
-## 🚀 Implementation Steps
-
-### Day 1: Memory Integration
-
-1. **Install LlamaIndex**: `pip install llama-index`
-2. **Create `services/agent_memory.py`** with the Memory wrapper above
-3. **Update Brown and Bayko** to use real memory instead of stubs
-4. **Test**: Verify agents can store and retrieve conversation history
-
-### Day 2: Evaluation Logic
-
-1. **Create `services/simple_evaluator.py`** with the evaluation class above
-2. **Update Brown's `review_output` method** to use SimpleEvaluator
-3. **Test**: Verify 3-attempt limit and rejection rules work
-4. **Optional**: Add memory sync to SQLite for persistence
-
-### Day 3: Testing & Polish
-
-1. **End-to-end testing** with various prompts
-2. **Console logging** to show evaluation decisions
-3. **Bug fixes** and edge case handling
-4. **Demo preparation**
-
----
-
-## 📋 Success Criteria
-
-- [ ] **Memory Works**: Agents store multi-turn conversations using LlamaIndex
-- [ ] **Evaluation Works**: Brown makes approve/reject/refine decisions
-- [ ] **3-Attempt Limit**: System stops after original + 2 revisions
-- [ ] **Auto-Rejection**: Dialogue-in-images and incoherent stories are rejected
-- [ ] **End-to-End**: Complete user prompt → comic generation → evaluation cycle
-
----
-
-_Simple, real, shippable. Perfect for a hackathon demo._
